@@ -1,0 +1,54 @@
+
+Compiling code into a PyTorch module...
+
+
+Running Part 1 Test: Naive Unfused Attention
+
+-----RUNNING REFERENCE IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Manual Execution Time:  0.6014337539672852 
+
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                           Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                    aten::empty         0.01%      45.000us         0.01%      45.000us      15.000us      18.00 Mb      18.00 Mb             3  
+    REFERENCE - NAIVE ATTENTION        99.47%     598.320ms        99.98%     601.376ms     601.376ms      17.00 Mb      -2.00 Mb             1  
+                    aten::zeros         0.01%      42.000us         0.42%       2.527ms       1.264ms      17.00 Mb           0 b             2  
+                    aten::clone         0.04%     237.000us         0.08%     471.000us     235.500us       2.00 Mb           0 b             2  
+                model_inference         0.02%     102.000us       100.00%     601.478ms     601.478ms       1.00 Mb     -16.00 Mb             1  
+                  aten::flatten        -0.02%    -149.000us         0.05%     283.000us      56.600us       1.00 Mb           0 b             5  
+               aten::empty_like         0.00%       6.000us         0.00%      13.000us      13.000us       1.00 Mb           0 b             1  
+            aten::empty_strided         0.00%      19.000us         0.00%      19.000us      19.000us       1.00 Mb       1.00 Mb             1  
+                    aten::zero_         0.01%      46.000us         0.41%       2.447ms       1.224ms           0 b           0 b             2  
+                    aten::fill_         0.40%       2.401ms         0.40%       2.401ms       1.200ms           0 b           0 b             2  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 601.478ms
+
+REFERENCE - NAIVE ATTENTION statistics
+cpu time:  601.376ms
+mem usage:  17825792 bytes
+-----RUNNING STUDENT IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Manual Execution Time:  0.39511680603027344 
+
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                         Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                  aten::empty         0.01%      35.000us         0.01%      35.000us      11.667us      18.00 Mb      18.00 Mb             3  
+    STUDENT - NAIVE ATTENTION        99.34%     392.549ms        99.99%     395.096ms     395.096ms      17.00 Mb      -2.00 Mb             1  
+                  aten::zeros         0.01%      24.000us         0.49%       1.935ms     967.500us      17.00 Mb           0 b             2  
+                  aten::clone         0.01%      29.000us         0.14%     562.000us     281.000us       2.00 Mb           0 b             2  
+              model_inference         0.01%      42.000us       100.00%     395.138ms     395.138ms       1.00 Mb     -16.00 Mb             1  
+                aten::flatten         0.01%      32.000us         0.08%     325.000us      65.000us       1.00 Mb           0 b             5  
+             aten::empty_like         0.00%       4.000us         0.00%       6.000us       6.000us       1.00 Mb           0 b             1  
+          aten::empty_strided         0.01%      26.000us         0.01%      26.000us      26.000us       1.00 Mb       1.00 Mb             1  
+                  aten::zero_         0.00%      18.000us         0.48%       1.878ms     939.000us           0 b           0 b             2  
+                  aten::fill_         0.47%       1.860ms         0.47%       1.860ms     930.000us           0 b           0 b             2  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 395.138ms
+
+STUDENT - NAIVE ATTENTION statistics
+cpu time:  395.096ms
+mem usage:  17825792 bytes

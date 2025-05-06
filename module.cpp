@@ -6,6 +6,10 @@
 #include <vector>
 #include <immintrin.h>
 
+#include "module_ispc.h"
+using namespace ispc;
+#define ISPC
+
 // Uncomment for ISPC
 //#include "module_ispc.h"
 //using namespace ispc;
@@ -128,6 +132,15 @@ torch::Tensor myNaiveAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
 
         //loop over Heads
         for (int h = 0; h < H; h++) {
+
+# ifdef ISPC
+            // QK^t
+            computeQKt_ispc(Q.data(), K.data(), QK_t.data(), b, h, H, N, d);  
+            // softmax(QK^t)
+            computeSoftmax_ispc(QK_t.data(), N);
+            // softmax(QK^t) * V
+            matMul_PVO_ispc(QK_t.data(), V.data(), O.data(), b, h, H, N, d);
+# else
             // QK^t
             for (int i = 0; i < N; i++) {
 
@@ -171,6 +184,7 @@ torch::Tensor myNaiveAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                     fourDimWrite(O, b, h, i, j, H, N, d, sum);
                 }
             }
+# endif
         }
     }
     // DO NOT EDIT THIS RETURN STATEMENT //
