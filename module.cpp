@@ -322,19 +322,42 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
 
     // -------- YOUR CODE HERE  -------- //
     // We give you a template of the first three loops for your convenience
-    //loop over batch
+    #pragma omp parallel for collapse(3)
     for (int b = 0; b < B; b++){
 
         //loop over heads
         for (int h = 0; h < H; h++){
             for (int i = 0; i < N ; i++){
 
-		// YRow is moved inside so each OpenMP thread gets a local copy.
+                // YRow is moved inside so each OpenMP thread gets a local copy.
                 at::Tensor ORowTensor = temp.index({torch::indexing::Slice(omp_get_thread_num(), torch::indexing::None)});      
                 std::vector<float> ORow = formatTensor(ORowTensor);
-		//YOUR CODE HERE
+                //YOUR CODE HERE
+                // softmax(QK^t)
+                float exp_sum = 0;
+                for (int j = 0; j < N; j++) {
+                    float val = 0;
+                    for (int k = 0; k < d; k++) {
+                        float val1 = fourDimRead(Q, b, h, i, k, H, N, d);
+                        float val2 = fourDimRead(K, b, h, j, k, H, N, d);
+                        val += val1 * val2;
+                    }
+                    float exp_val = std::exp(val);
+                    ORow[j] = exp_val;
+                    exp_sum += exp_val;
+                }
+                for (int j = 0; j < d; j++) {
+                    float val = 0;
+                    for (int k = 0; k < N; k++) {
+                        float val1 = ORow[k];
+                        float val2 = fourDimRead(V, b, h, k, j, H, N, d);
+                        val += val1 * val2;
+                    }
+                    val /= exp_sum;
+                    fourDimWrite(O, b, h, i, j, H, N, d, val);
+                }
             }
-	}
+        }
     }
 	    
 	
