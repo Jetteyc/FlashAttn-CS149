@@ -406,7 +406,82 @@ torch::Tensor myFlashAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
     std::vector<float> lnew = formatTensor(LnewTensor);
 
     // -------- YOUR CODE HERE  -------- //
-
+    for (int b = 0; b < B; b++) {
+        for (int h = 0; h < H; h++) {
+            std::fill(l.begin(), l.end(), 0);
+            for (int j = 0; j < N; j += Bc) {
+                // load Kj, Vj
+                for (int j1 = j; j1 < std::min(N, j + Bc); j1++) {
+                    for (int k = 0; k < d; k++) {
+                        int j_local = j1 - j;
+                        float val = fourDimRead(K, b, h, j1, k, H, N, d);
+                        twoDimWrite(Kj, j_local, k, d, val);
+                        val = fourDimRead(V, b, h, j1, k, H, N, d);
+                        twoDimWrite(Vj, j_local, k, d, val);
+                    }
+                }
+                for (int i = 0; i < N; i += Br) {
+                    // load Qi, Oi, li
+                    for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
+                        int i_local = i1 - i; 
+                        for (int k = 0; k < d; k++) {
+                            float val = fourDimRead(Q, b, h, i1, k, H, N, d);
+                            twoDimWrite(Qi, i_local, k, d, val);
+                            val = fourDimRead(O, b, h, i1, k, H, N, d);
+                            twoDimWrite(Oi, i_local, k, d, val);
+                        }
+                        li[i_local] = l[i1];
+                    }
+                    // Sij = QiKj_t, Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
+                    for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
+                        float exp_sum = 0;
+                        int i_local = i1 - i;
+                        for (int j1 = j; j1 < std::min(N, j + Bc); j1++) {
+                            float val = 0;
+                            int j_local = j1 - j;
+                            for (int k = 0; k < d; k++) {
+                                float val1 = twoDimRead(Qi, i_local, k, d);
+                                float val2 = twoDimRead(Kj, j_local, k, d);
+                                val += val1 * val2;
+                            }
+                            twoDimWrite(Sij, i_local, j_local, Bc, val);
+                            float exp_val = std::exp(val);
+                            twoDimWrite(Pij, i_local, j_local, Bc, exp_val);
+                            exp_sum += exp_val;
+                        }
+                        lij[i_local] = exp_sum;
+                        lnew[i_local] = li[i_local] + lij[i_local];
+                    }
+                    // Oi <- (liOi + PijVj) / lnew
+                    for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
+                        int i_local = i1 - i;
+                        for (int k = 0; k < d; k++) {
+                            float val = 0;
+                            for (int j1 = j; j1 < std::min(N, j + Bc); j1++) {
+                                int j_local = j1 - j;
+                                float val1 = twoDimRead(Pij, i_local, j_local, Bc);
+                                float val2 = twoDimRead(Vj, j_local, k, d);
+                                val += val1 * val2;
+                            }
+                            float val3 = twoDimRead(Oi, i_local, k, d);
+                            val += val3 * li[i_local]; 
+                            val /= lnew[i_local];
+                            twoDimWrite(Oi, i_local, k, d, val);
+                        }
+                    }
+                    // Write Oi, lnew to O and L;
+                    for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
+                        int i_local = i1 - i;
+                        l[i1] = lnew[i_local];
+                        for (int k = 0; k < d; k++) {
+                            float val = twoDimRead(Oi, i_local, k, d);
+                            fourDimWrite(O, b, h, i1, k, H, N, d, val);
+                        }
+                    }
+                }
+            }
+        }
+    }
     // DO NOT EDIT THIS RETURN STATEMENT //
     // It formats your C++ Vector O back into a Tensor of Shape (B, H, N, d) and returns it //
     return torch::from_blob(O.data(), {B, H, N, d}, torch::TensorOptions().dtype(torch::kFloat32)).clone();
