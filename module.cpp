@@ -123,7 +123,56 @@ torch::Tensor myNaiveAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
     */
     
     // -------- YOUR CODE HERE  -------- //
-    
+    //loop over Batch Size
+    for (int b = 0; b < B; b++) {
+
+        //loop over Heads
+        for (int h = 0; h < H; h++) {
+            // QK^t
+            for (int i = 0; i < N; i++) {
+
+                for (int j = 0; j < N; j++) {
+                    float sum = 0;
+                    for(int k = 0; k < d; k++) {
+                        float val1 = fourDimRead(Q, b, h, i, k, H, N, d);
+                        float val2 = fourDimRead(K, b, h, j, k, H, N, d);
+                        sum += val1 * val2;
+                    }
+                    twoDimWrite(QK_t, i, j, N, sum);
+                }
+            }
+            // softmax(QK^t)
+            for (int i = 0; i < N; i++) {
+                float sum = 0;
+                
+                for (int j = 0; j < N; j++) {
+                    float val = twoDimRead(QK_t, i, j, N);
+                    float exp_val = std::exp(val);
+                    sum += exp_val;
+                    twoDimWrite(QK_t, i, j, N, exp_val);
+                }
+                
+                for (int j = 0; j < N; j++) {
+                    float val = twoDimRead(QK_t, i, j, N);
+                    val /= sum;
+                    twoDimWrite(QK_t, i, j, N, val);
+                }
+            }
+            // softmax(QK^t) * V
+            for (int i = 0; i < N; i++) {
+
+                for (int j = 0; j < d; j++) {
+                    float sum = 0;
+                    for(int k = 0; k < N; k++) {
+                        float val1 = twoDimRead(QK_t, i, k, N);
+                        float val2 = fourDimRead(V, b, h, k, j, H, N, d);
+                        sum += val1 * val2;
+                    }
+                    fourDimWrite(O, b, h, i, j, H, N, d, sum);
+                }
+            }
+        }
+    }
     // DO NOT EDIT THIS RETURN STATEMENT //
     // It formats your C++ Vector O back into a Tensor of Shape (B, H, N, d) and returns it //
     return torch::from_blob(O.data(), {B, H, N, d}, torch::TensorOptions().dtype(torch::kFloat32)).clone();
