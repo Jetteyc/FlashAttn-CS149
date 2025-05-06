@@ -1,0 +1,50 @@
+
+Compiling code into a PyTorch module...
+
+
+Running Part 4 Test: Flash Attention
+
+-----RUNNING REFERENCE IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Manual Execution Time:  1.8147156238555908 
+
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                           Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                    aten::zeros         0.00%      54.000us         0.24%       4.442ms     317.286us      33.67 Mb      42.00 Kb            14  
+                    aten::empty         0.00%      44.000us         0.00%      44.000us       3.143us      33.29 Mb      33.29 Mb            14  
+                model_inference         0.01%     132.000us       100.00%        1.815s        1.815s       1.00 Mb    -693.00 Kb             1  
+    REFERENCE - FLASH ATTENTION        97.79%        1.775s        99.98%        1.814s        1.814s       1.00 Mb     -32.00 Mb             1  
+                    aten::zero_         0.12%       2.194ms         2.19%      39.732ms      29.172us     353.00 Kb     353.00 Kb          1362  
+                    aten::fill_         2.08%      37.771ms         2.08%      37.771ms      73.058us           0 b           0 b           517  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 1.815s
+
+REFERENCE - FLASH ATTENTION statistics
+cpu time:  1814.373ms
+mem usage:  1048576 bytes
+-----RUNNING STUDENT IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Manual Execution Time:  0.5650568008422852 
+
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                         Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                  aten::empty         0.00%      15.000us         0.00%      15.000us       1.154us       2.38 Mb       2.38 Mb            13  
+                  aten::clone         0.01%      41.000us         0.06%     351.000us     175.500us       2.00 Mb           0 b             2  
+                  aten::zeros         0.01%      69.000us         0.02%     129.000us      10.750us       1.67 Mb      10.00 Kb            12  
+              model_inference         0.02%      88.000us       100.00%     565.078ms     565.078ms       1.00 Mb    -686.00 Kb             1  
+    STUDENT - FLASH ATTENTION        99.89%     564.434ms        99.97%     564.903ms     564.903ms       1.00 Mb      -2.00 Mb             1  
+                aten::flatten         0.00%      27.000us         0.03%     185.000us      12.333us       1.00 Mb           0 b            15  
+             aten::empty_like         0.00%       5.000us         0.00%       6.000us       6.000us       1.00 Mb           0 b             1  
+          aten::empty_strided         0.00%       8.000us         0.00%       8.000us       8.000us       1.00 Mb       1.00 Mb             1  
+                  aten::zero_         0.00%      14.000us         0.02%      86.000us       7.167us     290.00 Kb     290.00 Kb            12  
+                  aten::fill_         0.01%      72.000us         0.01%      72.000us      24.000us           0 b           0 b             3  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 565.078ms
+
+STUDENT - FLASH ATTENTION statistics
+cpu time:  564.903ms
+mem usage:  1048576 bytes
