@@ -40,8 +40,12 @@ namespace ispc { /* namespace */
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 extern "C" {
 #endif // __cplusplus
+    extern void computePart3_ispc(const float * Q, const float * K, const float * V, float * O, float * ORow, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t i);
+    extern void computePart4_ispc(const float * Q, const float * K, const float * V, float * O, float * Sij, float * Pij, float * Kj, float * Vj, float * Qi, float * Oi, float * l, float * li, float * lij, float * lnew, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t i, const int32_t j, const int32_t Br, const int32_t Bc);
+    extern void computeQKt_blocked_ispc(const float * Q, const float * K, float * QK_t, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t L);
     extern void computeQKt_ispc(const float * Q, const float * K, float * QK_t, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d);
     extern void computeSoftmax_ispc(float * QK_t, const int32_t N);
+    extern void matMul_PVO_blocked_ispc(float * QK_t, float * V, float * O, int32_t b, int32_t h, int32_t H, int32_t N, int32_t d, int32_t L);
     extern void matMul_PVO_ispc(float * QK_t, float * V, float * O, int32_t b, int32_t h, int32_t H, int32_t N, int32_t d);
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 } /* end extern C */

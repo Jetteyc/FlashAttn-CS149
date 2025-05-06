@@ -221,11 +221,16 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
 
         //loop over Heads
         for (int h = 0; h < H; h++) {
-            
-            // QK^t
             const int L = 32;
-            
-            std::fill(QK_t.begin(), QK_t.end(), 0.0f);
+# ifdef ISPC
+            // QK^t
+            computeQKt_blocked_ispc(Q.data(), K.data(), QK_t.data(), b, h, H, N, d, L);  
+            // softmax(QK^t)
+            computeSoftmax_ispc(QK_t.data(), N);
+            // softmax(QK^t) * V
+            matMul_PVO_blocked_ispc(QK_t.data(), V.data(), O.data(), b, h, H, N, d, L);
+# else
+            // QK^t
             for (int i = 0; i < N; i += L) {
 
                 for (int j = 0; j < N; j += L) {
@@ -254,7 +259,6 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
 
                 }
             }
-
             // softmax(QK^t)
             for (int i = 0; i < N; i++) {
                 float sum = 0;
@@ -272,7 +276,7 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
                     twoDimWrite(QK_t, i, j, N, val);
                 }
             }
-
+          
             // softmax(QK^t) * V
 
             for (int i = 0; i < N; i += L) {
@@ -301,6 +305,7 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
 
                 }
             }
+# endif
         }
     }
     // DO NOT EDIT THIS RETURN STATEMENT //
@@ -342,12 +347,14 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
         //loop over heads
         for (int h = 0; h < H; h++){
             for (int i = 0; i < N ; i++){
-
                 // YRow is moved inside so each OpenMP thread gets a local copy.
                 at::Tensor ORowTensor = temp.index({torch::indexing::Slice(omp_get_thread_num(), torch::indexing::None)});      
                 std::vector<float> ORow = formatTensor(ORowTensor);
                 //YOUR CODE HERE
-                // softmax(QK^t)
+# ifdef ISPC
+                computePart3_ispc(Q.data(), K.data(), V.data(), O.data(), ORow.data(), b, h, H, N, d, i);
+# else
+
                 float exp_sum = 0;
                 for (int j = 0; j < N; j++) {
                     float val = 0;
@@ -370,6 +377,7 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                     val /= exp_sum;
                     fourDimWrite(O, b, h, i, j, H, N, d, val);
                 }
+# endif
             }
         }
     }
@@ -446,6 +454,9 @@ torch::Tensor myFlashAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                         }
                         li[i_local] = l[i1];
                     }
+# ifdef ISPC        
+                    computePart4_ispc(Q.data(), K.data(), V.data(), O.data(), Sij.data(), Pij.data(), Kj.data(), Vj.data(), Qi.data(), Oi.data(), l.data(), li.data(), lij.data(), lnew.data(), b, h, H, N, d, i, j, Br, Bc);
+# else
                     // Sij = QiKj_t, Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
                     for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
                         float exp_sum = 0;
@@ -492,6 +503,7 @@ torch::Tensor myFlashAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                             fourDimWrite(O, b, h, i1, k, H, N, d, val);
                         }
                     }
+# endif
                 }
             }
         }

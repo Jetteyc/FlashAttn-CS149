@@ -1,0 +1,54 @@
+
+Compiling code into a PyTorch module...
+
+
+Running Part 4 Test: Flash Attention
+
+-----RUNNING REFERENCE IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Pytorch Execution Time: 3.828334093093872 
+
+Manual Execution Time:  1.664522647857666 
+
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                           Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                    aten::zeros         0.00%      57.000us         0.35%       5.880ms     420.000us      33.06 Mb      24.41 Kb            14  
+                    aten::empty         0.00%      53.000us         0.00%      53.000us       3.786us      33.03 Mb      33.03 Mb            14  
+                model_inference         0.01%     133.000us       100.00%        1.665s        1.665s       1.00 Mb     -80.06 Kb             1  
+    REFERENCE - FLASH ATTENTION        99.60%        1.658s        99.99%        1.664s        1.664s       1.00 Mb     -32.00 Mb             1  
+                    aten::zero_         0.04%     637.000us         0.38%       6.361ms       0.187us      26.95 Kb      26.95 Kb         33962  
+                    aten::fill_         0.34%       5.724ms         0.34%       5.724ms       1.908ms           0 b           0 b             3  
+-------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 1.665s
+
+REFERENCE - FLASH ATTENTION statistics
+cpu time:  1664.347ms
+mem usage:  1048576 bytes
+-----RUNNING STUDENT IMPLEMENTATION-----
+
+manual attention == pytorch attention True
+Pytorch Execution Time: 3.8501579761505127 
+
+Manual Execution Time:  0.3961453437805176 
+
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                         Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                  aten::empty         0.01%      27.000us         0.01%      27.000us       2.077us       2.04 Mb       2.04 Mb            13  
+                  aten::clone         0.01%      54.000us         0.11%     447.000us     223.500us       2.00 Mb           0 b             2  
+                  aten::zeros         0.01%      35.000us         0.03%     125.000us      10.417us       1.06 Mb      16.41 Kb            12  
+              model_inference         0.03%     102.000us       100.00%     396.169ms     396.169ms       1.00 Mb     -75.77 Kb             1  
+    STUDENT - FLASH ATTENTION        99.82%     395.445ms        99.96%     396.019ms     396.019ms       1.00 Mb      -2.00 Mb             1  
+                aten::flatten         0.01%      37.000us         0.07%     276.000us      18.400us       1.00 Mb           0 b            15  
+             aten::empty_like         0.00%       5.000us         0.00%      16.000us      16.000us       1.00 Mb           0 b             1  
+          aten::empty_strided         0.00%      10.000us         0.00%      10.000us      10.000us       1.00 Mb       1.00 Mb             1  
+                  aten::zero_         0.00%       9.000us         0.02%      74.000us       6.167us      16.21 Kb      16.21 Kb            12  
+                  aten::fill_         0.02%      65.000us         0.02%      65.000us      65.000us           0 b           0 b             1  
+-----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 396.169ms
+
+STUDENT - FLASH ATTENTION statistics
+cpu time:  396.019ms
+mem usage:  1048576 bytes
