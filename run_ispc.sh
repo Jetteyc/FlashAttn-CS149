@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 创建 output_ispc 文件夹结构
-mkdir -p output_ispc/warmup output_ispc/part1 output_ispc/part2 output_ispc/part3 output_ispc/part4
+mkdir -p output_ispc/part1 output_ispc/part2 output_ispc/part3 output_ispc/part4
 
 ispc -O3 --target=avx2-i32x8 --arch=x86-64 --pic module.ispc -h module_ispc.h -o module_ispc.o 
 

@@ -134,12 +134,7 @@ torch::Tensor myNaiveAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
         for (int h = 0; h < H; h++) {
 
 # ifdef ISPC
-            // QK^t
-            computeQKt_ispc(Q.data(), K.data(), QK_t.data(), b, h, H, N, d);  
-            // softmax(QK^t)
-            computeSoftmax_ispc(QK_t.data(), N);
-            // softmax(QK^t) * V
-            matMul_PVO_ispc(QK_t.data(), V.data(), O.data(), b, h, H, N, d);
+            part1_ispc(Q.data(), K.data(), QK_t.data(), V.data(), O.data(), b, h, H, N, d);
 # else
             // QK^t
             for (int i = 0; i < N; i++) {
@@ -223,12 +218,13 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
         for (int h = 0; h < H; h++) {
             const int L = 32;
 # ifdef ISPC
+            part2_ispc(Q.data(), K.data(), QK_t.data(), V.data(), O.data(), b, h, H, N, d, L);
             // QK^t
-            computeQKt_blocked_ispc(Q.data(), K.data(), QK_t.data(), b, h, H, N, d, L);  
-            // softmax(QK^t)
-            computeSoftmax_ispc(QK_t.data(), N);
-            // softmax(QK^t) * V
-            matMul_PVO_blocked_ispc(QK_t.data(), V.data(), O.data(), b, h, H, N, d, L);
+            // computeQKt_blocked_ispc(Q.data(), K.data(), QK_t.data(), b, h, H, N, d, L);  
+            // // softmax(QK^t)
+            // computeSoftmax_ispc(QK_t.data(), N);
+            // // softmax(QK^t) * V
+            // matMul_PVO_blocked_ispc(QK_t.data(), V.data(), O.data(), b, h, H, N, d, L);
 # else
             // QK^t
             for (int i = 0; i < N; i += L) {
@@ -352,7 +348,7 @@ torch::Tensor myFusedAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                 std::vector<float> ORow = formatTensor(ORowTensor);
                 //YOUR CODE HERE
 # ifdef ISPC
-                computePart3_ispc(Q.data(), K.data(), V.data(), O.data(), ORow.data(), b, h, H, N, d, i);
+                part3_ispc(Q.data(), K.data(), V.data(), O.data(), ORow.data(), b, h, H, N, d, i);
 # else
 
                 float exp_sum = 0;
@@ -455,7 +451,7 @@ torch::Tensor myFlashAttention(torch::Tensor QTensor, torch::Tensor KTensor, tor
                         li[i_local] = l[i1];
                     }
 # ifdef ISPC        
-                    computePart4_ispc(Q.data(), K.data(), V.data(), O.data(), Sij.data(), Pij.data(), Kj.data(), Vj.data(), Qi.data(), Oi.data(), l.data(), li.data(), lij.data(), lnew.data(), b, h, H, N, d, i, j, Br, Bc);
+                    part4_ispc(Q.data(), K.data(), V.data(), O.data(), Sij.data(), Pij.data(), Kj.data(), Vj.data(), Qi.data(), Oi.data(), l.data(), li.data(), lij.data(), lnew.data(), b, h, H, N, d, i, j, Br, Bc);
 # else
                     // Sij = QiKj_t, Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
                     for (int i1 = i; i1 < std::min(N, i + Br); i1++) {
