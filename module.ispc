@@ -5,9 +5,6 @@ export void part1_ispc(
     uniform float QK_t[],
     uniform float V[],
     uniform float O[],
-    uniform const int b,
-    uniform const int h,
-    uniform const int H,
     uniform const int N,
     uniform const int d
 ){
@@ -16,8 +13,8 @@ export void part1_ispc(
         for (uniform int j = 0; j < N; j++) {
             float val = 0;
             foreach (k = 0 ... d){
-                float val1 = Q[b * H * N * d + h * N * d + i * d + k];
-                float val2 = K[b * H * N * d + h * N * d + j * d + k];
+                float val1 = Q[i * d + k];
+                float val2 = K[j * d + k];
                 val += val1 * val2;
             }
             uniform float sum = reduce_add(val);
@@ -46,18 +43,15 @@ export void part1_ispc(
     }
     // softmax(QK^t) * V
     for (uniform int i = 0; i < N; i++) {
-
-        for (uniform int j = 0; j < d; j++) {
+        foreach(j = 0 ... d){
             float sum = 0;
-            foreach(k = 0 ... N) {
+            for(uniform int k = 0; k < N; k++) {
                 float val1 = QK_t[i * N + k];
-                float val2 = V[b * H * N * d + h * N * d + k * d + j];
+                float val2 = V[k * d + j];
                 sum += val1 * val2;
             }
             uniform float sum1 = reduce_add(sum);
-            if (programIndex == 0) {
-                O[b * H * N * d + h * N * d + i * d + j] = sum1;
-            }
+            O[i * d + j] = sum;
         }
     }
 }
@@ -70,9 +64,6 @@ export void part2_ispc(
     uniform float QK_t[],
     uniform float V[],
     uniform float O[],
-    uniform const int b,
-    uniform const int h,
-    uniform const int H,
     uniform const int N,
     uniform const int d,
     uniform const int L
@@ -89,8 +80,8 @@ export void part2_ispc(
                     for (uniform int j1 = j; j1 < min(j + L, N); j1++) {
                         float sum = 0;
                         foreach (k1 = k ... min(k + L, d)) {
-                            float val1 = Q[b * H * N * d + h * N * d + i1 * d + k1];
-                            float val2 = K[b * H * N * d + h * N * d + j1 * d + k1];
+                            float val1 = Q[i1 * d + k1];
+                            float val2 = K[j1 * d + k1];
                             sum += val1 * val2;
                         }
                         uniform float sum1 = reduce_add(sum);
@@ -103,7 +94,6 @@ export void part2_ispc(
                 }
 
             }
-
 
         }
     }
@@ -135,18 +125,14 @@ export void part2_ispc(
 
                 for (uniform int i1 = i; i1 < min(i + L, N); i1++) {
                     
-                    for (uniform int j1 = j; j1 < min(j + L, d); j1++) {
+                    foreach (j1 = j ... min(j + L, d)) {
                         float val = 0;
-                        foreach (k1 = k ... min(k + L, N)) {
+                        for (int k1 = k; k1 < min(k + L, N); k1++) {
                             float val1 = QK_t[i1 * N + k1];
-                            float val2 = V[b * H * N * d + h * N * d + k1 * d + j1];
+                            float val2 = V[k1 * d + j1];
                             val += val1 * val2;
                         }
-                        uniform float sum1 = reduce_add(val);
-                        uniform float sum2 = O[b * H * N * d + h * N * d + i1 * d + j1];
-                        if (programIndex == 0) {
-                            O[b * H * N * d + h * N * d + i1 * d + j1] = sum1 + sum2;
-                        }
+                        O[i1 * d + j1] = val + O[i1 * d + j1];
                     }
 
                 }
@@ -164,9 +150,6 @@ export void part3_ispc(
     uniform const float V[],
     uniform float O[],
     uniform float ORow[],
-    uniform const int b,
-    uniform const int h,
-    uniform const int H,
     uniform const int N,
     uniform const int d,
     uniform const int i
@@ -175,8 +158,8 @@ export void part3_ispc(
     for (uniform int j = 0; j < N; j++) {
         float val = 0;
         foreach (k = 0 ... d) {
-            float val1 = Q[b * H * N * d + h * N * d + i * d + k];
-            float val2 = K[b * H * N * d + h * N * d + j * d + k];
+            float val1 = Q[i * d + k];
+            float val2 = K[j * d + k];
             val += val1 * val2;
         }
         uniform float sum = reduce_add(val);
@@ -186,18 +169,14 @@ export void part3_ispc(
             exp_sum += exp_val;
         }
     }
-    for (uniform int j = 0; j < d; j++) {
+    foreach (j = 0 ... d) {
         float val = 0;
-        foreach (k = 0 ... N) {
+        for(int k = 0; k < N; k++) {
             float val1 = ORow[k];
-            float val2 = V[b * H * N * d + h * N * d + k * d + j];
+            float val2 = V[k * d + j];
             val += val1 * val2;
         }
-        uniform float sum = reduce_add(val);
-        if (programIndex == 0) {
-            sum /= exp_sum;
-            O[b * H * N * d + h * N * d + i * d + j] = sum;
-        }
+        O[i * d + j] = val / exp_sum;
     }
 }
 
@@ -227,6 +206,19 @@ export void part4_ispc(
     uniform const int Br,
     uniform const int Bc
 ){
+    // load Qi, Oi, li
+    int step = b * H * N * d + h * N * d;
+    for (int i1 = i; i1 < min(N, i + Br); i1++) {
+        int i_local = i1 - i; 
+        foreach (k = 0 ... d) {
+            Qi[i_local * d + k] = Q[step + i1 * d + k];
+            Oi[i_local * d + k] = O[step + i1 * d + k];
+        }
+        // li[i_local] = l[i1];
+    }
+    foreach(i1 = i ... min(N, i + Br)) {
+        li[i1 - i] = l[i1];
+    }
     // Sij = QiKj_t, Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
     for (uniform int i1 = i; i1 < min(N, i + Br); i1++) {
         uniform float exp_sum = 0;
@@ -251,19 +243,16 @@ export void part4_ispc(
     // Oi <- (liOi + PijVj) / lnew
     for (uniform int i1 = i; i1 < min(N, i + Br); i1++) {
         uniform int i_local = i1 - i;
-        for (uniform int k = 0; k < d; k++) {
+        foreach (k = 0 ... d) {
             float val = 0;
-            foreach (j1 = j ... min(N, j + Bc)) {
+            for (int j1 = j; j1 < min(N, j + Bc); j1++) {
                 int j_local = j1 - j;
                 float val1 = Pij[i_local * Bc + j_local];
                 float val2 = Vj[j_local * d + k];
                 val += val1 * val2;
             }
-            uniform float val3 = Oi[i_local * d + k];
-            uniform float val_u = reduce_add(val);
-            val_u += val3 * li[i_local]; 
-            val_u /= lnew[i_local];
-            Oi[i_local * d + k] = val_u;
+            val += Oi[i_local * d + k] * li[i_local]; 
+            Oi[i_local * d + k] = val / lnew[i_local];
         }
     }
     // Write Oi, lnew to O and L;
@@ -272,7 +261,7 @@ export void part4_ispc(
         l[i1] = lnew[i_local];
         foreach (k = 0 ... d) {
             float val = Oi[i_local * d + k];
-            O[b * H * N * d + h * N * d + i1 * d + k] = val;
+            O[step + i1 * d + k] = val;
         }
     }
 }

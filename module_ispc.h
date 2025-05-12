@@ -40,9 +40,9 @@ namespace ispc { /* namespace */
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 extern "C" {
 #endif // __cplusplus
-    extern void part1_ispc(const float * Q, const float * K, float * QK_t, float * V, float * O, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d);
-    extern void part2_ispc(const float * Q, const float * K, float * QK_t, float * V, float * O, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t L);
-    extern void part3_ispc(const float * Q, const float * K, const float * V, float * O, float * ORow, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t i);
+    extern void part1_ispc(const float * Q, const float * K, float * QK_t, float * V, float * O, const int32_t N, const int32_t d);
+    extern void part2_ispc(const float * Q, const float * K, float * QK_t, float * V, float * O, const int32_t N, const int32_t d, const int32_t L);
+    extern void part3_ispc(const float * Q, const float * K, const float * V, float * O, float * ORow, const int32_t N, const int32_t d, const int32_t i);
     extern void part4_ispc(const float * Q, const float * K, const float * V, float * O, float * Sij, float * Pij, float * Kj, float * Vj, float * Qi, float * Oi, float * l, float * li, float * lij, float * lnew, const int32_t b, const int32_t h, const int32_t H, const int32_t N, const int32_t d, const int32_t i, const int32_t j, const int32_t Br, const int32_t Bc);
 #if defined(__cplusplus) && (! defined(__ISPC_NO_EXTERN_C) || !__ISPC_NO_EXTERN_C )
 } /* end extern C */

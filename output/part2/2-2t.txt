@@ -7,48 +7,52 @@ Running Part 2 Test: Unfused Attention with Blocked Matmul
 -----RUNNING REFERENCE IMPLEMENTATION-----
 
 manual attention == pytorch attention True
-Manual Execution Time:  0.0290524959564209 
+Pytorch Execution Time: 1.007267951965332 
+
+Manual Execution Time:  0.029738426208496094 
 
 ------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                                             Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
 ------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-                                     aten::empty         0.07%      20.000us         0.07%      20.000us       6.667us       1.50 Mb       1.50 Mb             3  
-    REFERENCE - BLOCKED MATMUL + UNFUSED SOFTMAX        97.50%      28.343ms        99.88%      29.036ms      29.036ms       1.25 Mb    -512.00 Kb             1  
-                                     aten::zeros         0.13%      39.000us         1.03%     298.000us     149.000us       1.25 Mb           0 b             2  
-                                     aten::clone         0.15%      44.000us         1.21%     352.000us     176.000us     512.00 Kb           0 b             2  
-                                 model_inference         0.12%      35.000us       100.00%      29.071ms      29.071ms     256.00 Kb      -1.00 Mb             1  
-                                   aten::flatten         0.11%      32.000us         0.60%     173.000us      34.600us     256.00 Kb           0 b             5  
-                                aten::empty_like         0.02%       5.000us         0.03%       8.000us       8.000us     256.00 Kb           0 b             1  
-                             aten::empty_strided         0.06%      18.000us         0.06%      18.000us      18.000us     256.00 Kb     256.00 Kb             1  
-                                     aten::zero_         0.09%      27.000us         0.83%     242.000us     121.000us           0 b           0 b             2  
-                                     aten::fill_         0.74%     215.000us         0.74%     215.000us     107.500us           0 b           0 b             2  
+                                     aten::empty         0.09%      26.000us         0.09%      26.000us       8.667us       1.50 Mb       1.50 Mb             3  
+    REFERENCE - BLOCKED MATMUL + UNFUSED SOFTMAX        97.32%      28.962ms        99.87%      29.719ms      29.719ms       1.25 Mb    -512.00 Kb             1  
+                                     aten::zeros         0.15%      46.000us         1.13%     335.000us     167.500us       1.25 Mb           0 b             2  
+                                     aten::clone         0.17%      50.000us         1.26%     376.000us     188.000us     512.00 Kb           0 b             2  
+                                 model_inference         0.13%      40.000us       100.00%      29.759ms      29.759ms     256.00 Kb      -1.00 Mb             1  
+                                   aten::flatten         0.12%      36.000us         0.61%     181.000us      36.200us     256.00 Kb           0 b             5  
+                                aten::empty_like         0.02%       6.000us         0.04%      11.000us      11.000us     256.00 Kb           0 b             1  
+                             aten::empty_strided         0.07%      21.000us         0.07%      21.000us      21.000us     256.00 Kb     256.00 Kb             1  
+                                     aten::zero_         0.10%      30.000us         0.90%     268.000us     134.000us           0 b           0 b             2  
+                                     aten::fill_         0.80%     238.000us         0.80%     238.000us     119.000us           0 b           0 b             2  
 ------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 29.071ms
+Self CPU time total: 29.759ms
 
 REFERENCE - BLOCKED MATMUL + UNFUSED SOFTMAX statistics
-cpu time:  29.036ms
+cpu time:  29.719ms
 mem usage:  1310720 bytes
 -----RUNNING STUDENT IMPLEMENTATION-----
 
 manual attention == pytorch attention True
-Manual Execution Time:  0.03380584716796875 
+Pytorch Execution Time: 1.0076324939727783 
+
+Manual Execution Time:  0.029684782028198242 
 
 ----------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                                           Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
 ----------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-    STUDENT - BLOCKED MATMUL + UNFUSED SOFTMAX        98.52%      33.326ms        99.87%      33.784ms      33.784ms       1.25 Mb    -512.00 Kb             1  
-                                   aten::zeros         0.25%      84.000us         0.27%      93.000us      46.500us       1.25 Mb           0 b             2  
-                                   aten::empty         0.03%      10.000us         0.03%      10.000us       3.333us       1.25 Mb       1.25 Mb             3  
-                                   aten::clone         0.06%      21.000us         0.80%     271.000us     135.500us     512.00 Kb           0 b             2  
-                               model_inference         0.13%      43.000us       100.00%      33.827ms      33.827ms     256.00 Kb      -1.00 Mb             1  
-                                 aten::flatten         0.05%      18.000us         0.29%      99.000us      19.800us     256.00 Kb           0 b             5  
-                              aten::empty_like         0.01%       2.000us         0.01%       3.000us       3.000us     256.00 Kb     256.00 Kb             1  
-                           aten::empty_strided         0.03%       9.000us         0.03%       9.000us       9.000us     256.00 Kb     256.00 Kb             1  
-                                   aten::zero_         0.02%       8.000us         0.21%      70.000us      35.000us           0 b           0 b             2  
-                                   aten::fill_         0.18%      62.000us         0.18%      62.000us      31.000us           0 b           0 b             2  
+                                   aten::empty         0.03%       9.000us         0.03%       9.000us       3.000us       1.50 Mb       1.50 Mb             3  
+    STUDENT - BLOCKED MATMUL + UNFUSED SOFTMAX        97.44%      28.950ms        98.76%      29.343ms      29.343ms       1.25 Mb    -512.00 Kb             1  
+                                   aten::zeros         0.11%      32.000us         0.28%      83.000us      41.500us       1.25 Mb           0 b             2  
+                                   aten::clone         0.10%      29.000us         0.92%     273.000us     136.500us     512.00 Kb           0 b             2  
+                               model_inference         1.24%     369.000us       100.00%      29.712ms      29.712ms     256.00 Kb      -1.00 Mb             1  
+                                 aten::flatten         0.06%      17.000us         0.32%      96.000us      19.200us     256.00 Kb           0 b             5  
+                              aten::empty_like         0.01%       2.000us         0.01%       3.000us       3.000us     256.00 Kb           0 b             1  
+                           aten::empty_strided         0.03%      10.000us         0.03%      10.000us      10.000us     256.00 Kb     256.00 Kb             1  
+                                   aten::zero_         0.03%       8.000us         0.20%      58.000us      29.000us           0 b           0 b             2  
+                                   aten::fill_         0.17%      50.000us         0.17%      50.000us      25.000us           0 b           0 b             2  
 ----------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 33.827ms
+Self CPU time total: 29.712ms
 
 STUDENT - BLOCKED MATMUL + UNFUSED SOFTMAX statistics
-cpu time:  33.784ms
+cpu time:  29.343ms
 mem usage:  1310720 bytes

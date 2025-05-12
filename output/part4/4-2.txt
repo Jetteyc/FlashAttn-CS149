@@ -7,48 +7,48 @@ Running Part 4 Test: Flash Attention
 -----RUNNING REFERENCE IMPLEMENTATION-----
 
 manual attention == pytorch attention True
-Pytorch Execution Time: 1.1422960758209229 
+Pytorch Execution Time: 0.9750440120697021 
 
-Manual Execution Time:  0.12524938583374023 
+Manual Execution Time:  0.1234290599822998 
 
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                            Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-                    aten::zeros         0.04%      53.000us         0.53%     665.000us      47.500us       2.91 Mb      32.00 Kb            14  
-                    aten::empty         0.04%      45.000us         0.04%      45.000us       3.214us       2.60 Mb       2.60 Mb            14  
-                    aten::zero_         0.17%     210.000us         2.48%       3.113ms      27.307us     288.00 Kb     288.00 Kb           114  
-                model_inference         0.14%     177.000us       100.00%     125.277ms     125.277ms     256.00 Kb    -677.00 Kb             1  
-    REFERENCE - FLASH ATTENTION        97.28%     121.866ms        99.58%     124.755ms     124.755ms     256.00 Kb      -2.00 Mb             1  
-                    aten::fill_         2.34%       2.926ms         2.34%       2.926ms      79.081us           0 b           0 b            37  
+                    aten::zeros        -0.03%     -32.000us         0.48%     595.000us      42.500us       2.91 Mb     996.00 Kb            14  
+                    aten::empty         0.03%      38.000us         0.03%      38.000us       2.714us       1.91 Mb       1.91 Mb            14  
+                model_inference         0.13%     157.000us       100.00%     123.451ms     123.451ms     256.00 Kb    -681.00 Kb             1  
+    REFERENCE - FLASH ATTENTION        97.27%     120.086ms        99.61%     122.973ms     122.973ms     256.00 Kb      -2.00 Mb             1  
+                    aten::zero_         0.29%     355.000us         2.51%       3.101ms      27.202us      32.00 Kb      32.00 Kb           114  
+                    aten::fill_         2.31%       2.847ms         2.31%       2.847ms      76.946us           0 b           0 b            37  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 125.277ms
+Self CPU time total: 123.451ms
 
 REFERENCE - FLASH ATTENTION statistics
-cpu time:  124.755ms
+cpu time:  122.973ms
 mem usage:  262144 bytes
 -----RUNNING STUDENT IMPLEMENTATION-----
 
 manual attention == pytorch attention True
-Pytorch Execution Time: 1.1364128589630127 
+Pytorch Execution Time: 0.9901833534240723 
 
-Manual Execution Time:  0.04498624801635742 
+Manual Execution Time:  0.03783893585205078 
 
 -----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                          Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg       CPU Mem  Self CPU Mem    # of Calls  
 -----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-                  aten::empty         0.06%      28.000us         0.06%      28.000us       2.154us       1.13 Mb       1.13 Mb            13  
-                  aten::zeros         0.16%      73.000us         0.43%     193.000us      16.083us     933.00 Kb           0 b            12  
-                  aten::clone         0.28%     125.000us         1.53%     687.000us     343.500us     512.00 Kb           0 b             2  
-              model_inference         0.40%     178.000us       100.00%      45.023ms      45.023ms     256.00 Kb    -678.00 Kb             1  
-    STUDENT - FLASH ATTENTION        97.48%      43.887ms        99.24%      44.680ms      44.680ms     256.00 Kb    -512.00 Kb             1  
-                aten::flatten         0.10%      43.000us         0.64%     286.000us      19.067us     256.00 Kb           0 b            15  
-             aten::empty_like         0.02%       8.000us         0.02%      11.000us      11.000us     256.00 Kb           0 b             1  
-          aten::empty_strided         0.04%      18.000us         0.04%      18.000us      18.000us     256.00 Kb     256.00 Kb             1  
-                  aten::zero_         0.09%      39.000us         0.26%     119.000us       9.917us      33.00 Kb      33.00 Kb            12  
-                  aten::fill_         0.18%      80.000us         0.18%      80.000us      26.667us           0 b           0 b             3  
+                  aten::empty         0.10%      39.000us         0.10%      39.000us       3.000us       1.16 Mb       1.16 Mb            13  
+                  aten::zeros         0.12%      46.000us         0.65%     246.000us      20.500us     933.00 Kb     -29.00 Kb            12  
+                  aten::clone         0.18%      69.000us         1.28%     485.000us     242.500us     512.00 Kb           0 b             2  
+              model_inference         0.15%      58.000us       100.00%      37.863ms      37.863ms     256.00 Kb    -679.00 Kb             1  
+    STUDENT - FLASH ATTENTION        97.60%      36.955ms        99.20%      37.560ms      37.560ms     256.00 Kb    -512.00 Kb             1  
+                aten::flatten         0.12%      44.000us         0.63%     237.000us      15.800us     256.00 Kb           0 b            15  
+             aten::empty_like         0.02%       8.000us         0.04%      15.000us      15.000us     256.00 Kb           0 b             1  
+          aten::empty_strided         0.08%      29.000us         0.08%      29.000us      29.000us     256.00 Kb     256.00 Kb             1  
+                  aten::zero_         0.20%      77.000us         0.44%     168.000us      14.000us      33.00 Kb      33.00 Kb            12  
+                  aten::fill_         0.40%     153.000us         0.40%     153.000us      51.000us           0 b           0 b             3  
 -----------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 45.023ms
+Self CPU time total: 37.863ms
 
 STUDENT - FLASH ATTENTION statistics
-cpu time:  44.68ms
+cpu time:  37.56ms
 mem usage:  262144 bytes

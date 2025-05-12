@@ -38,7 +38,7 @@ do
             ;;
         *)
             echo "Unknown part number: $ARG"
-            echo "Usage: $0 [0 1 2 3 4 5] (0=warmup, 1=part1, ..., 5=vectorization)"
+            echo "Usage: $0 [0 1 2 3 4] (0=warmup, 1=part1, ..., 4=part4)"
             exit 1
             ;;
     esac
