@@ -1,0 +1,53 @@
+
+Compiling code into a PyTorch module...
+
+
+[1/3] /usr/local/cuda-12.6/bin/nvcc  -DTORCH_EXTENSION_NAME=custom_module -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/TH -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/THC -isystem /usr/local/cuda-12.6/include -isystem /home/rjy/miniconda3/envs/fa1/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=0 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ --expt-relaxed-constexpr -gencode=arch=compute_86,code=compute_86 -gencode=arch=compute_86,code=sm_86 --compiler-options '-fPIC' -arch=sm_86 -g -G -std=c++17 -c /home/rjy/mycode/FlashAttn-CS149/kernel.cu -o kernel.cuda.o 
+[2/3] c++ -MMD -MF module.o.d -DTORCH_EXTENSION_NAME=custom_module -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1011\" -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/TH -isystem /home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/include/THC -isystem /usr/local/cuda-12.6/include -isystem /home/rjy/miniconda3/envs/fa1/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=0 -fPIC -std=c++17 -c /home/rjy/mycode/FlashAttn-CS149/module.cpp -o module.o 
+[3/3] c++ module.o kernel.cuda.o -shared -L/home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/lib -lc10 -lc10_cuda -ltorch_cpu -ltorch_cuda -ltorch -ltorch_python -L/usr/local/cuda-12.6/lib64 -lcudart -o custom_module.so
+
+Br = 32, Bc = 32
+Max shared memory: 49152, requested shared memory: 11008 
+
+
+Br = 32, Bc = 32
+Max shared memory: 49152, requested shared memory: 11008 
+
+Running Test: Flash Attention - 1
+
+-----RUNNING STUDENT IMPLEMENTATION-----
+
+pytorch_time: 3.5095369815826416
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                              Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+    STUDENT - FLASH ATTENTION - v1        64.68%      14.025ms        67.37%      14.610ms      14.610ms      15.092ms        63.15%      16.224ms      16.224ms             1  
+                       aten::zeros         5.81%       1.260ms        35.32%       7.660ms       2.553ms       1.151ms         4.82%       8.805ms       2.935ms             3  
+                       aten::zero_         3.16%     685.000us        27.30%       5.920ms       1.973ms     741.000us         3.10%       6.500ms       2.167ms             3  
+                       aten::fill_        24.14%       5.235ms        24.14%       5.235ms       1.745ms       5.759ms        24.10%       5.759ms       1.920ms             3  
+                       aten::empty         2.21%     480.000us         2.21%     480.000us     160.000us       1.154ms         4.83%       1.154ms     384.667us             3  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 21.685ms
+Self CUDA time total: 23.897ms
+
+Total mismatched elements: 0 / 262144
+
+
+-----RUNNING STUDENT IMPLEMENTATION-2----
+
+pytorch_time: 3.483255624771118
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+                              Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+    STUDENT - FLASH ATTENTION - v1        99.85%     110.849ms        99.89%     110.896ms     110.896ms     119.388ms        99.80%     119.474ms     119.474ms             1  
+                       aten::zeros         0.07%      83.000us         0.15%     166.000us      55.333us      39.000us         0.03%     240.000us      80.000us             3  
+                       aten::zero_         0.03%      35.000us         0.06%      69.000us      23.000us      66.000us         0.06%     192.000us      64.000us             3  
+                       aten::fill_         0.03%      34.000us         0.03%      34.000us      11.333us     126.000us         0.11%     126.000us      42.000us             3  
+                       aten::empty         0.01%      14.000us         0.01%      14.000us       4.667us       9.000us         0.01%       9.000us       3.000us             3  
+----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
+Self CPU time total: 111.015ms
+Self CUDA time total: 119.628ms
+
+Total mismatched elements: 0 / 262144
+
+
