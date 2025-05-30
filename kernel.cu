@@ -4,15 +4,16 @@
 #include "kernel.h"
 #include <stdio.h>
 #include <float.h>
-
-__global__ void matrixAddKernel(float* A, float* B, float* C, int size) {
+#define h_min __float2half(-65504.0f);
+#define h_0 __float2half(0.0f);
+__global__ void matrixAddKernel(half* A, half* B, half* C, int size) {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     if (i < size) {
-        C[i] = A[i] + B[i];
+        C[i] = __hadd(A[i], B[i]);
     }
 }
 
-extern "C" void launchMatrixAdd(float* A, float* B, float* C, int size) {
+extern "C" void launchMatrixAdd(half* A, half* B, half* C, int size) {
     int threads_per_block = 256;
     int blocks_per_grid = (size + threads_per_block - 1) / threads_per_block;
 
@@ -25,37 +26,48 @@ extern "C" void launchMatrixAdd(float* A, float* B, float* C, int size) {
 }
 
 
-__device__ __noinline__ void check(const float* A, int N, int M, const char* label) {
+__device__ void check(const half* A, int N, int M, const char* label) {
+#ifdef ENABLE_CHECK
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tid == 0) {
+        printf("=== check: %s ===\n", label);
+        for (int i = 0; i < N; ++i) {
+            for (int j = 0; j < M; ++j) {
+                float val = __half2float(A[i * M + j]);
+                printf("%.8f ", val);
+            }
+            printf("\n");
+        }
+        printf("==================\n");
+    }
+#endif
+}
+__device__ void check(const float* A, int N, int M, const char* label) {
 #ifdef ENABLE_CHECK
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     
     if (tid == 0) {
         printf("=== check: %s ===\n", label);
         for (int i = 0; i < N; ++i) {
-            if(i < 10 || i >= N - 10){
-                for (int j = 0; j < M; ++j) {
-                    float val = A[i * M + j];
-                    printf("%.8f ", val);
-                }
-                printf("\n");
-            }   
-            if(i == 10){
-                printf("...\n");
+            for (int j = 0; j < M; ++j) {
+                float val = A[i * M + j];
+                printf("%.8f ", val);
             }
+            printf("\n");
         }
         printf("==================\n");
     }
 #endif
 }
 
-__device__ __forceinline__ float atomicMax(float * addr, float value) {
+__device__ float atomicMax(float * addr, float value) {
     float old;
     old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
          __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
-
     return old;
 }
-__device__ __noinline__ void loadMatrix(const float* M, float* N, int tile_size, int d) {
+
+__device__ void loadMatrix(const half* M, half* N, int tile_size, int d) {
     // printf("loadMatrix called by thread %d\n", threadIdx.x);
     int i = threadIdx.x;
     if (i < tile_size) {
@@ -66,18 +78,17 @@ __device__ __noinline__ void loadMatrix(const float* M, float* N, int tile_size,
     __syncthreads();
 }
 
-
-__device__ __noinline__ void computeAttention(
-    const float* Qi, int br, const float* Kj, int bc,
-    float* Sij, float* Pij, 
-    float* lij, const float* li, float* lnew, 
-    float* mij, const float* mi, float* mnew,
+__device__ void computeAttention(
+    const half* Qi, int br, const half* Kj, int bc,
+    half* Sij, half* Pij, 
+    float* lij, const half* li, half* lnew, 
+    float* mij, const half* mi, half* mnew,
     int d
 ) {
     int j = threadIdx.x;
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            Sij[i * bc + j] = 0.0f;
+            Sij[i * bc + j] = h_0;
         }
     }
     if(j < br) {
@@ -88,7 +99,7 @@ __device__ __noinline__ void computeAttention(
     if (j < bc) {
         for (int i = 0; i < br; i++) {
             for (int k = 0; k < d; k++) {
-                Sij[i * bc + j] = Sij[i * bc + j] + Qi[i * d + k] * Kj[j * d + k];
+                Sij[i * bc + j] = __float2half(__half2float(Sij[i * bc + j]) + __half2float(Qi[i * d + k]) * __half2float(Kj[j * d + k]));
             }
         }
     }
@@ -96,14 +107,14 @@ __device__ __noinline__ void computeAttention(
     // check(Sij, br, bc, "Sij - 1");
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            float val = Sij[i * bc + j];
-            Sij[i * bc + j] = val / sqrtf(d);
+            float val = __half2float(Sij[i * bc + j]);
+            Sij[i * bc + j] = __float2half(val / sqrtf(d));
         }
     }
     __syncthreads();
     if (j < br) {
         for (int i = 0; i < bc; i++) {
-            mij[j] = max(mij[j], Sij[j * bc + i]);
+            mij[j] = max(mij[j], __half2float(Sij[j * bc + i]));
 #ifdef ENABLE_CHECK
             // printf("got %f, m[%d] = %f\n", val, i, mij[i]);
 #endif
@@ -112,24 +123,24 @@ __device__ __noinline__ void computeAttention(
     __syncthreads();
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            float exp_val = expf(Sij[i * bc + j] - mij[i]);
-            Pij[i * bc + j] = exp_val;
+            float exp_val = expf(__half2float(Sij[i * bc + j]) - mij[i]);
+            Pij[i * bc + j] = __float2half(exp_val);
             atomicAdd(&lij[i], exp_val);
         }
     }
     __syncthreads();
     if(j < br){
-        mnew[j] = max(mi[j], mij[j]);
-        lnew[j] = exp(mi[j] - mnew[j]) * li[j] + exp(mij[j] - mnew[j]) * lij[j];
+        mnew[j] = __float2half(max(__half2float(mi[j]), mij[j]));
+        lnew[j] = __float2half(exp(__half2float(mi[j]) - __half2float(mnew[j])) * __half2float(li[j]) + exp(mij[j] - __half2float(mnew[j])) * lij[j]);
     }
     __syncthreads();
 }
 
 
-__device__ __noinline__ void updateOutput(
-    const float* Pij, int Br, int Bc, const float* Vj, int d,
-    float* Oi, float* lnew, const float* li,
-    float* mij, float* mi, float* mnew
+__device__ void updateOutput(
+    const half* Pij, int Br, int Bc, const half* Vj, int d,
+    half* Oi, half* lnew, const half* li,
+    float* mij, half* mi, half* mnew
 ) {
     int idx = threadIdx.x;
     int stride = blockDim.x;
@@ -138,15 +149,15 @@ __device__ __noinline__ void updateOutput(
         int k = ik % d;
         float val = 0;
         for (int j = 0; j < Bc; j++) {
-            val += Pij[i * Bc + j] * Vj[j * d + k];
+            val += __half2float(Pij[i * Bc + j]) * __half2float(Vj[j * d + k]);
         }
-        Oi[ik] = (exp(mi[i] - mnew[i]) * Oi[ik] * li[i] + val * exp(mij[i] - mnew[i])) / lnew[i];
+        Oi[ik] = __float2half((exp(__half2float(mi[i]) - __half2float(mnew[i])) * __half2float(Oi[ik]) * __half2float(li[i]) + val * exp(mij[i] - __half2float(mnew[i]))) / __half2float(lnew[i]));
     }
     __syncthreads();
 }
 
 __global__ void myFA1Kernel(
-    float* O, float* Q, float* K, float* V, float* l, float* m, 
+    half* O, half* Q, half* K, half* V, half* l, half* m, 
     int Bc, int Br,int B, int H, int N, int d
 ){
     int b = blockIdx.x; 
@@ -155,17 +166,17 @@ __global__ void myFA1Kernel(
     int step = b * H * N * d + h * N * d;
     int lm_offset = b * H * N + h * N;
     // LTensor.zero_();
-    extern __shared__ float shared_mem[];
-    float* Qi = shared_mem; // (Br, d)
-    float* Kj = Qi + Br * d; // (Bc, d)
-    float* Vj = Kj + Bc * d; // (Bc, d)
-    float* Oi = Vj + Bc * d; // (Br, d)
-    float* Sij = Oi + Br * d; // (Br, Bc)
-    float* Pij = Sij + Br * Bc; // (Br, Bc)
-    float* li = Pij + Br * Bc; // (Br)
-    float* lnew = li + Br; // (Br)
-    float* mi = lnew + Br; // (Br)
-    float* mnew = mi + Br; // (Br)
+    extern __shared__ half shared_mem[];
+    half* Qi = shared_mem; // (Br, d)
+    half* Kj = Qi + Br * d; // (Bc, d)
+    half* Vj = Kj + Bc * d; // (Bc, d)
+    half* Oi = Vj + Bc * d; // (Br, d)
+    half* Sij = Oi + Br * d; // (Br, Bc)
+    half* Pij = Sij + Br * Bc; // (Br, Bc)
+    half* li = Pij + Br * Bc; // (Br)
+    half* lnew = li + Br; // (Br)
+    half* mi = lnew + Br; // (Br)
+    half* mnew = mi + Br; // (Br)
     float* lij = reinterpret_cast<float*>(mnew) + Br; // (Br)
     float* mij = lij + Br; // (Br)
     
@@ -180,8 +191,8 @@ __global__ void myFA1Kernel(
         check(Vj, min(N, j + Bc) - j, d, "Vj");
         for (int i = 0; i < N; i += Br) {
             if(tx < Br){
-                lnew[tx] = 0.0f;
-                mnew[tx] = -FLT_MAX;
+                lnew[tx] = h_0;
+                mnew[tx] = h_min;
                 li[tx] = l[lm_offset + i + tx];
                 mi[tx] = m[lm_offset + i + tx];
             }
@@ -218,9 +229,9 @@ __global__ void myFA1Kernel(
     }
     
 }
-extern "C" void launchMyFA1(float* O, float* Q, float* K, float* V, float* l, float* m, int Bc, int Br,int B, int H, int N, int d
+extern "C" void launchMyFA1(half* O, half* Q, half* K, half* V, half* l, half* m, int Bc, int Br,int B, int H, int N, int d
 ){
-    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 4 * Br) * sizeof(float) + 2 * Br * sizeof(float);
+    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 4 * Br) * sizeof(half) + 2 * Br * sizeof(float);
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     if(Br > Bc) {

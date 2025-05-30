@@ -13,9 +13,9 @@ torch::Tensor mytest(torch::Tensor A, torch::Tensor B) {
     auto C = at::empty_like(A);
     int size = A.numel();
     launchMatrixAdd(
-        (float*)(A.data_ptr<float>()), 
-        (float*)(B.data_ptr<float>()), 
-        (float*)(C.data_ptr<float>()), 
+        (half*)(A.data_ptr<at::Half>()), 
+        (half*)(B.data_ptr<at::Half>()), 
+        (half*)(C.data_ptr<at::Half>()), 
         size
     );
     return C;
@@ -27,7 +27,7 @@ torch::Tensor myFA1(torch::Tensor QTensor, torch::Tensor KTensor, torch::Tensor 
     int Bc, int Br,int B, int H, int N, int d) {
         
     auto device = QTensor.device();
-    auto options = torch::TensorOptions().dtype(torch::kFloat).device(device);
+    auto options = torch::TensorOptions().dtype(torch::kHalf).device(device);
     auto OTensor = torch::zeros({B, H, N, d}, options);
     TORCH_CHECK(KTensor.device() == device, "KTensor 必须与 QTensor 在同一设备");
     TORCH_CHECK(VTensor.device() == device, "VTensor 必须与 QTensor 在同一设备");
@@ -41,16 +41,16 @@ torch::Tensor myFA1(torch::Tensor QTensor, torch::Tensor KTensor, torch::Tensor 
     // L, M in passed in with Shape: (N)
     // Li, Lij, and Lnew are passed in with shape (Br)
     // mi, mij, and mnew are passed in with shape (Br)
-    float* O = (float*)(OTensor.data_ptr<float>());
-    float* Q = (float*)(QTensor.data_ptr<float>());
-    float* K = (float*)(KTensor.data_ptr<float>());
-    float* V = (float*)(VTensor.data_ptr<float>());
-    float* l = (float*)(LTensor.data_ptr<float>());
-    float* m = (float*)(MTensor.data_ptr<float>());
+    half* O = (half*)(OTensor.data_ptr<at::Half>());
+    half* Q = (half*)(QTensor.data_ptr<at::Half>());
+    half* K = (half*)(KTensor.data_ptr<at::Half>());
+    half* V = (half*)(VTensor.data_ptr<at::Half>());
+    half* l = (half*)(LTensor.data_ptr<at::Half>());
+    half* m = (half*)(MTensor.data_ptr<at::Half>());
     launchMyFA1(O, Q, K, V, l, m, Bc, Br, B, H, N, d);
     // cudaDeviceReset();
     cudaDeviceSynchronize();
-    return torch::from_blob(O, {B, H, N, d}, torch::TensorOptions().dtype(torch::kFloat).device(device));
+    return torch::from_blob(O, {B, H, N, d}, torch::TensorOptions().dtype(torch::kHalf).device(device));
 }
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("mytest", &mytest, "Test function for matrix addition");

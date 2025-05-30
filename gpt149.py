@@ -48,8 +48,8 @@ class CustomAttention(nn.Module):
     def myFA1(self):
         device = self.Q.device
         d = self.d
-        L = torch.zeros((self.B, self.H, self.N), device=device)
-        M = torch.zeros((self.B, self.H, self.N), device=device)
+        L = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
+        M = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
         if self.isRef:
             with record_function("REFERENCE - FLASH ATTENTION"):
                 Q = self.Q.transpose(1, 2) # B, N, H, d
@@ -66,9 +66,9 @@ class CustomAttention(nn.Module):
         return out
     
 def createQKVSimple(B, H, N, d, device="cuda"):
-    Q = torch.empty(B, H, N, d, device="cpu")
-    K = torch.empty(B, H, N, d, device="cpu")
-    V = torch.empty(B, H, N, d, device="cpu")
+    Q = torch.empty(B, H, N, d, device="cpu", dtype=torch.float16)
+    K = torch.empty(B, H, N, d, device="cpu", dtype=torch.float16)
+    V = torch.empty(B, H, N, d, device="cpu", dtype=torch.float16)
     for b in range(B):
         for h in range(H):
             for i in range(N):
@@ -121,31 +121,31 @@ def testTemplate(customFunc, params):
 
 
 def mytest_simple():
-    A = torch.tensor([1.0, 2.0, 3.0], device="cuda")
-    B = torch.tensor([4.0, 5.0, 6.0], device="cuda")
+    A = torch.tensor([1.0, 2.0, 3.0], device="cuda", dtype=torch.float16)
+    B = torch.tensor([4.0, 5.0, 6.0], device="cuda", dtype=torch.float16)
     C = mr.mytest(A, B)
     
-    expected = torch.tensor([5.0, 7.0, 9.0], device="cuda")
+    expected = torch.tensor([5.0, 7.0, 9.0], device="cuda", dtype=torch.float16)
     assert torch.allclose(C, expected, atol=1e-3), f"Test failed! Expected {expected}, got {C}"
     print("Test passed! Result:", C)
 
-def fa1Test(B, H, N, d, bc, br, device="cuda"):
+def fa1Test(B, H, N, d, bc, br):
     print("Running Test: Flash Attention - 1\n")
     # shape1
     # N, d, B, H = 1024, 32, 1, 4
-    Q,K,V = createQKVSimple(B, H, N, d, device=device)
+    Q,K,V = createQKVSimple(B, H, N, d)
     params = (B, H, N, d)
     attentionModuleStudent = CustomAttention(Q,K,V, B, H, N, d, False, bc, br)
     attentionModuleReference = CustomAttention(Q,K,V, B, H, N, d, True, bc, br)
-    # print("-----RUNNING REFERENCE IMPLEMENTATION-----\n")
-    # testTemplate(attentionModuleReference.myFA1, params)
-    # time.sleep(3)
+    print("-----RUNNING REFERENCE IMPLEMENTATION-----\n")
+    testTemplate(attentionModuleReference.myFA1, params)
+    time.sleep(3)
     print("-----RUNNING STUDENT IMPLEMENTATION-----\n")
     testTemplate(attentionModuleStudent.myFA1, params)
     time.sleep(3)
-    # print("-----RUNNING REFERENCE IMPLEMENTATION-2----\n")
-    # testTemplate(attentionModuleReference.myFA1, params)
-    # time.sleep(3)
+    print("-----RUNNING REFERENCE IMPLEMENTATION-2----\n")
+    testTemplate(attentionModuleReference.myFA1, params)
+    time.sleep(3)
     print("-----RUNNING STUDENT IMPLEMENTATION-2----\n")
     testTemplate(attentionModuleStudent.myFA1, params)
 
@@ -163,7 +163,6 @@ def main():
     parser.add_argument("-bc",  default="32", help="Flash Attention Bc Size")
     parser.add_argument("-br", default="32", help="Flash Attention Br Size")
     parser.add_argument("-N", default="1024", help="Flash Attention Br Size")
-    parser.add_argument("--device", default="cuda", help="Device to use: cpu or cuda")
 
     args = parser.parse_args()
 
@@ -188,7 +187,7 @@ def main():
         if args.testname == "test":
             mytest_simple()
         elif args.testname == "fa1":
-            fa1Test(N, d, B, H, int(args.bc), int(args.br), device=args.device)
+            fa1Test(N, d, B, H, int(args.bc), int(args.br))
         else:
             print("Unknown test name: %s" % args.testname)
     else:
