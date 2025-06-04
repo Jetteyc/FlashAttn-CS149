@@ -4,8 +4,8 @@
 #include "kernel.h"
 #include <stdio.h>
 #include <float.h>
-#define h_min __float2half(-65504.0f);
-#define h_0 __float2half(0.0f);
+#define CUDART_NEG_INF_FP16 __ushort_as_half(0xFC00); // IEEE 754 半精度负无穷的十六进制表示
+
 __global__ void matrixAddKernel(half* A, half* B, half* C, int size) {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     if (i < size) {
@@ -26,46 +26,22 @@ extern "C" void launchMatrixAdd(half* A, half* B, half* C, int size) {
 }
 
 
-__device__ void check(const half* A, int N, int M, const char* label) {
-#ifdef ENABLE_CHECK
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    if (tid == 0) {
-        printf("=== check: %s ===\n", label);
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < M; ++j) {
-                float val = __half2float(A[i * M + j]);
-                printf("%.8f ", val);
-            }
-            printf("\n");
-        }
-        printf("==================\n");
-    }
-#endif
-}
-__device__ void check(const float* A, int N, int M, const char* label) {
-#ifdef ENABLE_CHECK
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    
-    if (tid == 0) {
-        printf("=== check: %s ===\n", label);
-        for (int i = 0; i < N; ++i) {
-            for (int j = 0; j < M; ++j) {
-                float val = A[i * M + j];
-                printf("%.8f ", val);
-            }
-            printf("\n");
-        }
-        printf("==================\n");
-    }
-#endif
-}
-
-__device__ float atomicMax(float * addr, float value) {
-    float old;
-    old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
-         __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
-    return old;
-}
+// __device__ void check(const half* A, int N, int M, const char* label) {
+// #ifdef ENABLE_CHECK
+//     int tid = threadIdx.x + blockIdx.x * blockDim.x;
+//     if (tid == 0) {
+//         printf("=== check: %s ===\n", label);
+//         for (int i = 0; i < N; ++i) {
+//             for (int j = 0; j < M; ++j) {
+//                 float val = __half2float(A[i * M + j]);
+//                 printf("%.8f ", val);
+//             }
+//             printf("\n");
+//         }
+//         printf("==================\n");
+//     }
+// #endif
+// }
 
 __device__ void loadMatrix(const half* M, half* N, int tile_size, int d) {
     // printf("loadMatrix called by thread %d\n", threadIdx.x);
@@ -81,25 +57,25 @@ __device__ void loadMatrix(const half* M, half* N, int tile_size, int d) {
 __device__ void computeAttention(
     const half* Qi, int br, const half* Kj, int bc,
     half* Sij, half* Pij, 
-    float* lij, const half* li, half* lnew, 
-    float* mij, const half* mi, half* mnew,
+    half* lij, const half* li, half* lnew, 
+    half* mij, const half* mi, half* mnew,
     int d
 ) {
     int j = threadIdx.x;
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            Sij[i * bc + j] = h_0;
+            Sij[i * bc + j] = CUDART_ZERO_FP16;
         }
     }
     if(j < br) {
-        lij[j] = 0;
-        mij[j] = -FLT_MAX;
+        lij[j] = CUDART_ZERO_FP16;
+        mij[j] = CUDART_NEG_INF_FP16;
     }
     __syncthreads();
     if (j < bc) {
         for (int i = 0; i < br; i++) {
             for (int k = 0; k < d; k++) {
-                Sij[i * bc + j] = __float2half(__half2float(Sij[i * bc + j]) + __half2float(Qi[i * d + k]) * __half2float(Kj[j * d + k]));
+                Sij[i * bc + j] = __hadd(Sij[i * bc + j] , __hmul(Qi[i * d + k], Kj[j * d + k]));
             }
         }
     }
@@ -107,14 +83,14 @@ __device__ void computeAttention(
     // check(Sij, br, bc, "Sij - 1");
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            float val = __half2float(Sij[i * bc + j]);
-            Sij[i * bc + j] = __float2half(val / sqrtf(d));
+            half val = Sij[i * bc + j];
+            Sij[i * bc + j] = __hdiv(val, __float2half(sqrt(d)));
         }
     }
     __syncthreads();
     if (j < br) {
         for (int i = 0; i < bc; i++) {
-            mij[j] = max(mij[j], __half2float(Sij[j * bc + i]));
+            mij[j] = __hmax(mij[j], Sij[j * bc + i]);
 #ifdef ENABLE_CHECK
             // printf("got %f, m[%d] = %f\n", val, i, mij[i]);
 #endif
@@ -123,15 +99,15 @@ __device__ void computeAttention(
     __syncthreads();
     if (j < bc) {
         for (int i = 0; i < br; i++) {
-            float exp_val = expf(__half2float(Sij[i * bc + j]) - mij[i]);
-            Pij[i * bc + j] = __float2half(exp_val);
+            half exp_val = hexp(__hsub(Sij[i * bc + j], mij[i]));
+            Pij[i * bc + j] = exp_val;
             atomicAdd(&lij[i], exp_val);
         }
     }
     __syncthreads();
     if(j < br){
-        mnew[j] = __float2half(max(__half2float(mi[j]), mij[j]));
-        lnew[j] = __float2half(exp(__half2float(mi[j]) - __half2float(mnew[j])) * __half2float(li[j]) + exp(mij[j] - __half2float(mnew[j])) * lij[j]);
+        mnew[j] = __hmax(mi[j], mij[j]);
+        lnew[j] = __hadd(__hmul(hexp(__hsub(mi[j], mnew[j])), li[j]), __hmul(hexp(__hsub(mij[j], mnew[j])), lij[j]));
     }
     __syncthreads();
 }
@@ -140,18 +116,18 @@ __device__ void computeAttention(
 __device__ void updateOutput(
     const half* Pij, int Br, int Bc, const half* Vj, int d,
     half* Oi, half* lnew, const half* li,
-    float* mij, half* mi, half* mnew
+    half* mij, half* mi, half* mnew
 ) {
     int idx = threadIdx.x;
     int stride = blockDim.x;
     for (int ik = idx; ik < Br * d; ik += stride) {
         int i = ik / d;
         int k = ik % d;
-        float val = 0;
+        half val = CUDART_ZERO_FP16;
         for (int j = 0; j < Bc; j++) {
-            val += __half2float(Pij[i * Bc + j]) * __half2float(Vj[j * d + k]);
+            val =__hadd(val, __hmul(Pij[i * Bc + j], Vj[j * d + k]));
         }
-        Oi[ik] = __float2half((exp(__half2float(mi[i]) - __half2float(mnew[i])) * __half2float(Oi[ik]) * __half2float(li[i]) + val * exp(mij[i] - __half2float(mnew[i]))) / __half2float(lnew[i]));
+        Oi[ik] = __hdiv(__hadd(__hmul(__hmul(hexp(__hsub(mi[i], mnew[i])),Oi[ik]),li[i]),__hmul(val, hexp(__hsub(mij[i], mnew[i])))),lnew[i]);
     }
     __syncthreads();
 }
@@ -177,45 +153,45 @@ __global__ void myFA1Kernel(
     half* lnew = li + Br; // (Br)
     half* mi = lnew + Br; // (Br)
     half* mnew = mi + Br; // (Br)
-    float* lij = reinterpret_cast<float*>(mnew) + Br; // (Br)
-    float* mij = lij + Br; // (Br)
+    half* lij = mnew + Br; // (Br)
+    half* mij = lij + Br; // (Br)
     
-    check(K, N, d, "K");
-    check(V, N, d, "V");
-    check(Q, N, d, "Q");
+    // check(K, N, d, "K");
+    // check(V, N, d, "V");
+    // check(Q, N, d, "Q");
     for (int j = 0; j < N; j += Bc) {
         // load Kj, Vj
         loadMatrix(K + step + j * d, Kj, min(N, j + Bc) - j, d);
         loadMatrix(V + step + j * d, Vj, min(N, j + Bc) - j, d);
-        check(Kj, min(N, j + Bc) - j, d, "Kj");
-        check(Vj, min(N, j + Bc) - j, d, "Vj");
+        // check(Kj, min(N, j + Bc) - j, d, "Kj");
+        // check(Vj, min(N, j + Bc) - j, d, "Vj");
         for (int i = 0; i < N; i += Br) {
             if(tx < Br){
-                lnew[tx] = h_0;
-                mnew[tx] = h_min;
+                lnew[tx] = CUDART_ZERO_FP16;
+                mnew[tx] = CUDART_NEG_INF_FP16;
                 li[tx] = l[lm_offset + i + tx];
                 mi[tx] = m[lm_offset + i + tx];
             }
             __syncthreads();
             // load Qi, Oi, li
             loadMatrix(Q + step + i * d, Qi, min(N, i + Br) - i, d);
-            check(Qi, min(N, i + Br) - i, d, "Qi");
+            // check(Qi, min(N, i + Br) - i, d, "Qi");
             loadMatrix(O + step + i * d, Oi, min(N, i + Br) - i, d);
-            check(Oi, min(N, i + Br) - i, d, "Oi");
-            check(li, 1, min(N, i + Br) - i, "li");
-            check(mi, 1, min(N, i + Br) - i, "mi");
+            // check(Oi, min(N, i + Br) - i, d, "Oi");
+            // check(li, 1, min(N, i + Br) - i, "li");
+            // check(mi, 1, min(N, i + Br) - i, "mi");
             // Sij = QiKj_t/sqrtf(d), Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
-            check(lnew, 1, min(N, i + Br) - i, "lnew-before");
-            check(mnew, 1, min(N, i + Br) - i, "mnew-before");
+            // check(lnew, 1, min(N, i + Br) - i, "lnew-before");
+            // check(mnew, 1, min(N, i + Br) - i, "mnew-before");
             computeAttention(Qi, min(N, i + Br) - i, Kj, min(N, j + Bc) - j, Sij, Pij, lij, li, lnew, mij, mi, mnew, d);
-            check(Sij, min(N, i + Br) - i, min(N, j + Bc) - j, "Sij");
-            check(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, "Pij");
-            check(lij, 1, min(N, i + Br) - i, "lij");
-            check(li, 1, min(N, i + Br) - i, "li");
-            check(lnew, 1, min(N, i + Br) - i, "lnew");
-            check(mij, 1, min(N, i + Br) - i, "mij");
-            check(mi, 1, min(N, i + Br) - i, "mi");
-            check(mnew, 1, min(N, i + Br) - i, "mnew");
+            // check(Sij, min(N, i + Br) - i, min(N, j + Bc) - j, "Sij");
+            // check(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, "Pij");
+            // check(lij, 1, min(N, i + Br) - i, "lij");
+            // check(li, 1, min(N, i + Br) - i, "li");
+            // check(lnew, 1, min(N, i + Br) - i, "lnew");
+            // check(mij, 1, min(N, i + Br) - i, "mij");
+            // check(mi, 1, min(N, i + Br) - i, "mi");
+            // check(mnew, 1, min(N, i + Br) - i, "mnew");
             // Oi <- (liOi + PijVj) / lnew
             updateOutput(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, Vj, d, Oi, lnew, li, mij, mi, mnew);
             // Write Oi, lnew to O and L;
@@ -231,7 +207,7 @@ __global__ void myFA1Kernel(
 }
 extern "C" void launchMyFA1(half* O, half* Q, half* K, half* V, half* l, half* m, int Bc, int Br,int B, int H, int N, int d
 ){
-    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 4 * Br) * sizeof(half) + 2 * Br * sizeof(float);
+    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 6 * Br) * sizeof(half);
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
     if(Br > Bc) {

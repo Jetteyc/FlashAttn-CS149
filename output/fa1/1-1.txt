@@ -7,92 +7,92 @@ Compiling code into a PyTorch module...
 [3/3] c++ module.o kernel.cuda.o -shared -L/home/rjy/miniconda3/envs/fa1/lib/python3.10/site-packages/torch/lib -lc10 -lc10_cuda -ltorch_cpu -ltorch_cuda -ltorch -ltorch_python -L/usr/local/cuda-12.6/lib64 -lcudart -o custom_module.so
 
 Br = 32, Bc = 32
-Max shared memory: 49152, requested shared memory: 5632 
+Max shared memory: 49152, requested shared memory: 5504 
 
 
 Br = 32, Bc = 32
-Max shared memory: 49152, requested shared memory: 5632 
+Max shared memory: 49152, requested shared memory: 5504 
 
 Running Test: Flash Attention - 1
 
 -----RUNNING REFERENCE IMPLEMENTATION-----
 
-pytorch_time: 2.2644476890563965
+pytorch_time: 2.0834972858428955
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                            Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-    REFERENCE - FLASH ATTENTION         2.68%     316.000us        77.90%       9.180ms       9.180ms      66.000us         0.46%      11.899ms      11.899ms             1  
-                  FlashAttnFunc        30.39%       3.581ms        74.51%       8.781ms       8.781ms       6.139ms        42.56%      11.713ms      11.713ms             1  
-                      aten::pad         0.48%      57.000us        39.12%       4.610ms       1.537ms      78.000us         0.54%       4.886ms       1.629ms             3  
-          aten::constant_pad_nd         2.14%     252.000us        38.63%       4.553ms       1.518ms     132.000us         0.92%       4.808ms       1.603ms             3  
-                    aten::copy_        30.15%       3.553ms        30.15%       3.553ms       1.184ms       3.754ms        26.02%       3.754ms       1.251ms             3  
-                    aten::zeros         0.91%     107.000us        22.10%       2.605ms       1.302ms      54.000us         0.37%       2.526ms       1.263ms             2  
-                    aten::fill_        21.12%       2.489ms        21.12%       2.489ms     497.800us       2.517ms        17.45%       2.517ms     503.400us             5  
-                    aten::zero_         0.52%      61.000us        21.01%       2.476ms       1.238ms      14.000us         0.10%       2.429ms       1.214ms             2  
-                    aten::empty         9.28%       1.094ms         9.28%       1.094ms     136.750us       1.424ms         9.87%       1.424ms     178.000us             8  
-                aten::transpose         0.64%      75.000us         0.70%      83.000us      20.750us      83.000us         0.58%     120.000us      30.000us             4  
+    REFERENCE - FLASH ATTENTION         2.40%     401.000us        82.65%      13.818ms      13.818ms      89.000us         0.46%      16.466ms      16.466ms             1  
+                  FlashAttnFunc        40.21%       6.722ms        79.58%      13.304ms      13.304ms       9.486ms        49.15%      16.210ms      16.210ms             1  
+                      aten::pad         0.65%     109.000us        35.76%       5.979ms       1.993ms     129.000us         0.67%       6.017ms       2.006ms             3  
+          aten::constant_pad_nd         2.46%     412.000us        35.11%       5.870ms       1.957ms     275.000us         1.42%       5.888ms       1.963ms             3  
+                    aten::copy_        27.75%       4.639ms        27.75%       4.639ms       1.546ms       4.660ms        24.14%       4.660ms       1.553ms             3  
+                    aten::zeros         1.22%     204.000us        17.35%       2.900ms       1.450ms     173.000us         0.90%       2.836ms       1.418ms             2  
+                    aten::zero_         0.89%     148.000us        15.98%       2.671ms       1.335ms      97.000us         0.50%       2.657ms       1.329ms             2  
+                    aten::fill_        15.49%       2.589ms        15.49%       2.589ms     517.800us       2.612ms        13.53%       2.612ms     522.400us             5  
+                    aten::empty         6.14%       1.026ms         6.14%       1.026ms     128.250us       1.318ms         6.83%       1.318ms     164.750us             8  
+                   aten::narrow         0.90%     151.000us         1.47%     246.000us      82.000us     112.000us         0.58%     239.000us      79.667us             3  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 11.785ms
-Self CUDA time total: 14.425ms
+Self CPU time total: 16.718ms
+Self CUDA time total: 19.302ms
 
 Total mismatched elements: 0 / 131072
 
 
 -----RUNNING STUDENT IMPLEMENTATION-----
 
-pytorch_time: 1.7964107990264893
+pytorch_time: 2.0057260990142822
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                               Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-    STUDENT - FLASH ATTENTION - v1        99.60%      46.398ms        99.74%      46.463ms      46.463ms      47.843ms        99.60%      47.919ms      47.919ms             1  
-                       aten::zeros         0.20%      92.000us         0.40%     184.000us      61.333us      29.000us         0.06%     191.000us      63.667us             3  
-                       aten::zero_         0.08%      39.000us         0.17%      80.000us      26.667us      66.000us         0.14%     101.000us      33.667us             3  
-                       aten::empty         0.03%      12.000us         0.03%      12.000us       4.000us      61.000us         0.13%      61.000us      20.333us             3  
-                       aten::fill_         0.09%      41.000us         0.09%      41.000us      13.667us      35.000us         0.07%      35.000us      11.667us             3  
+    STUDENT - FLASH ATTENTION - v1        99.91%     237.698ms        99.94%     237.788ms     237.788ms     234.719ms        99.01%     234.827ms     234.827ms             1  
+                       aten::zeros         0.04%      97.000us         0.09%     224.000us      74.667us      39.000us         0.02%       2.351ms     783.667us             3  
+                       aten::empty         0.01%      17.000us         0.01%      17.000us       5.667us       2.163ms         0.91%       2.163ms     721.000us             3  
+                       aten::zero_         0.02%      51.000us         0.05%     110.000us      36.667us      96.000us         0.04%     149.000us      49.667us             3  
+                       aten::fill_         0.02%      59.000us         0.02%      59.000us      19.667us      53.000us         0.02%      53.000us      17.667us             3  
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 46.582ms
-Self CUDA time total: 48.034ms
+Self CPU time total: 237.922ms
+Self CUDA time total: 237.070ms
 
 Total mismatched elements: 0 / 131072
 
 
 -----RUNNING REFERENCE IMPLEMENTATION-2----
 
-pytorch_time: 1.8555214405059814
+pytorch_time: 2.001439094543457
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                            Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-    REFERENCE - FLASH ATTENTION        15.63%     131.000us        86.52%     725.000us     725.000us      69.000us         0.16%      43.571ms      43.571ms             1  
-                  FlashAttnFunc        21.24%     178.000us        64.32%     539.000us     539.000us      42.868ms        98.15%      43.459ms      43.459ms             1  
-                      aten::pad         4.18%      35.000us        39.26%     329.000us     109.667us      26.000us         0.06%     555.000us     185.000us             3  
-          aten::constant_pad_nd        17.54%     147.000us        35.08%     294.000us      98.000us      59.000us         0.14%     529.000us     176.333us             3  
-                   aten::narrow         4.65%      39.000us         9.19%      77.000us      25.667us     173.000us         0.40%     208.000us      69.333us             3  
-                    aten::copy_         4.18%      35.000us         4.18%      35.000us      11.667us     159.000us         0.36%     159.000us      53.000us             3  
-                    aten::empty         1.91%      16.000us         1.91%      16.000us       2.000us     107.000us         0.24%     107.000us      13.375us             8  
-                    aten::zeros         6.44%      54.000us        13.48%     113.000us      56.500us      26.000us         0.06%     105.000us      52.500us             2  
-                    aten::fill_         6.56%      55.000us         6.56%      55.000us      11.000us      74.000us         0.17%      74.000us      14.800us             5  
-                    aten::slice         6.21%      52.000us         6.44%      54.000us      13.500us      32.000us         0.07%      47.000us      11.750us             4  
+    REFERENCE - FLASH ATTENTION        15.17%     140.000us        86.57%     799.000us     799.000us      59.000us         0.03%     172.840ms     172.840ms             1  
+                  FlashAttnFunc        23.29%     215.000us        65.33%     603.000us     603.000us     172.017ms        99.34%     172.742ms     172.742ms             1  
+                      aten::pad         3.90%      36.000us        37.92%     350.000us     116.667us      27.000us         0.02%     696.000us     232.000us             3  
+          aten::constant_pad_nd        17.01%     157.000us        34.02%     314.000us     104.667us      97.000us         0.06%     669.000us     223.000us             3  
+                    aten::empty         1.73%      16.000us         1.73%      16.000us       2.000us     360.000us         0.21%     360.000us      45.000us             8  
+                    aten::zeros         6.50%      60.000us        13.43%     124.000us      62.000us      27.000us         0.02%     325.000us     162.500us             2  
+                   aten::narrow         4.55%      42.000us         8.99%      83.000us      27.667us     217.000us         0.13%     251.000us      83.667us             3  
+                    aten::copy_         4.01%      37.000us         4.01%      37.000us      12.333us     185.000us         0.11%     185.000us      61.667us             3  
+                    aten::fill_         6.28%      58.000us         6.28%      58.000us      11.600us      73.000us         0.04%      73.000us      14.600us             5  
+                    aten::zero_         3.14%      29.000us         6.18%      57.000us      28.500us      13.000us         0.01%      41.000us      20.500us             2  
 -------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 838.000us
-Self CUDA time total: 43.676ms
+Self CPU time total: 923.000us
+Self CUDA time total: 173.165ms
 
 Total mismatched elements: 0 / 131072
 
 
 -----RUNNING STUDENT IMPLEMENTATION-2----
 
-pytorch_time: 1.8222172260284424
+pytorch_time: 1.928083896636963
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
                               Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-    STUDENT - FLASH ATTENTION - v1        99.81%      90.672ms        99.86%      90.721ms      90.721ms      93.312ms        99.78%      93.389ms      93.389ms             1  
-                       aten::zeros         0.09%      79.000us         0.19%     173.000us      57.667us      36.000us         0.04%     206.000us      68.667us             3  
-                       aten::zero_         0.04%      38.000us         0.09%      84.000us      28.000us      62.000us         0.07%     104.000us      34.667us             3  
-                       aten::empty         0.01%      10.000us         0.01%      10.000us       3.333us      66.000us         0.07%      66.000us      22.000us             3  
-                       aten::fill_         0.05%      46.000us         0.05%      46.000us      15.333us      42.000us         0.04%      42.000us      14.000us             3  
+    STUDENT - FLASH ATTENTION - v1        99.92%     228.048ms        99.94%     228.104ms     228.104ms     219.743ms        99.88%     219.886ms     219.886ms             1  
+                       aten::zeros         0.04%      87.000us         0.08%     182.000us      60.667us      35.000us         0.02%     272.000us      90.667us             3  
+                       aten::zero_         0.02%      44.000us         0.04%      84.000us      28.000us     129.000us         0.06%     170.000us      56.667us             3  
+                       aten::empty         0.00%      11.000us         0.00%      11.000us       3.667us      67.000us         0.03%      67.000us      22.333us             3  
+                       aten::fill_         0.02%      40.000us         0.02%      40.000us      13.333us      41.000us         0.02%      41.000us      13.667us             3  
 ----------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  
-Self CPU time total: 90.845ms
-Self CUDA time total: 93.518ms
+Self CPU time total: 228.230ms
+Self CUDA time total: 220.015ms
 
 Total mismatched elements: 0 / 131072
 
