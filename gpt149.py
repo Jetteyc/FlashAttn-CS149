@@ -116,7 +116,7 @@ def testTemplate(customFunc, params, is_fa_ref=False):
     end = time.time()
     pytorch_time = end - start
     print(f"pytorch_time: {pytorch_time}")
-    with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         res = customFunc()
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
     res_ref_cpu = res_ref.cpu().clone()
