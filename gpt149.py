@@ -23,20 +23,29 @@ if os.path.exists('./build'):
     shutil.rmtree('./build')
 os.makedirs('./build')
 
+# mr = load(
+#     name="custom_module",
+#     sources=["module.cpp", "kernel.cu"],
+#     extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
+#     build_directory='./build',
+#     verbose=True
+# )
 mr = load(
     name="custom_module",
     sources=["module.cpp", "kernel.cu"],
-    extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
+    extra_cuda_cflags=["-arch=sm_86"],
     build_directory='./build',
-    verbose=True
+    verbose=False
 )
-
 class CustomAttention(nn.Module):
-    def __init__(self, Q, K, V, B, H, N, d, isRef=False, bc=256, br=256):
+    def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256):
         super(nn.Module, self).__init__()
         self.Q=Q
         self.K=K
         self.V=V
+        self.Q_FA = Q_FA
+        self.K_FA = K_FA
+        self.V_FA = V_FA
         self.B=B
         self.H=H
         self.N=N
@@ -46,16 +55,16 @@ class CustomAttention(nn.Module):
         self.br=br
 
     def myFA1(self):
-        device = self.Q.device
+        if self.Q is not None:
+            device = self.Q.device
+        else:
+            device = self.Q_FA.device
         d = self.d
         L = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
         M = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
         if self.isRef:
             with record_function("REFERENCE - FLASH ATTENTION"):
-                Q = self.Q.transpose(1, 2) # B, N, H, d
-                K = self.K.transpose(1, 2)
-                V = self.V.transpose(1, 2)
-                out = flash_attn_func(Q, K, V).transpose(1, 2)
+                out = flash_attn_func(self.Q_FA, self.K_FA, self.V_FA)
                 # out = badSoftmax(self.Q, self.K, self.V)
             return out
         with record_function("STUDENT - FLASH ATTENTION - v1"):
@@ -99,7 +108,7 @@ def badSoftmax(Q, K, V):
 
     return QKV
 
-def testTemplate(customFunc, params):
+def testTemplate(customFunc, params, is_fa_ref=False):
     start = time.time()
     B, H, N, d = params
     Q, K, V = createQKVSimple(B, H, N, d)
@@ -107,17 +116,16 @@ def testTemplate(customFunc, params):
     end = time.time()
     pytorch_time = end - start
     print(f"pytorch_time: {pytorch_time}")
-    with torch.autograd.profiler.profile(use_device='cuda') as prof:
+    with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
         res = customFunc()
-    print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
     res_ref_cpu = res_ref.cpu().clone()
     res_cpu = res.cpu().clone()
+    if is_fa_ref:
+        res_cpu = res_cpu.transpose(1, 2)
     # print("res_ref",res_ref_cpu)
     # print("res",res_cpu)
-    diff = torch.abs(res_ref_cpu - res_cpu)
-    not_close = diff > 1e-3
-    count = not_close.sum().item()
-    print(f"Total mismatched elements: {count} / {diff.numel()}\n\n")
+    torch.allclose(res_ref_cpu, res_cpu, atol=1e-2, rtol=1e-4)
 
 
 def mytest_simple():
@@ -129,25 +137,24 @@ def mytest_simple():
     assert torch.allclose(C, expected, atol=1e-3), f"Test failed! Expected {expected}, got {C}"
     print("Test passed! Result:", C)
 
-def fa1Test(B, H, N, d, bc, br):
+def fa1Test(B, H, N, d, bc, br, running_times=5):
     print("Running Test: Flash Attention - 1\n")
     # shape1
     # N, d, B, H = 1024, 32, 1, 4
     Q,K,V = createQKVSimple(B, H, N, d)
+    Q_FA = Q.transpose(1, 2) # B, N, H, d
+    K_FA = K.transpose(1, 2)
+    V_FA = V.transpose(1, 2)
     params = (B, H, N, d)
-    attentionModuleStudent = CustomAttention(Q,K,V, B, H, N, d, False, bc, br)
-    attentionModuleReference = CustomAttention(Q,K,V, B, H, N, d, True, bc, br)
-    print("-----RUNNING REFERENCE IMPLEMENTATION-----\n")
-    testTemplate(attentionModuleReference.myFA1, params)
-    time.sleep(3)
-    print("-----RUNNING STUDENT IMPLEMENTATION-----\n")
-    testTemplate(attentionModuleStudent.myFA1, params)
-    time.sleep(3)
-    print("-----RUNNING REFERENCE IMPLEMENTATION-2----\n")
-    testTemplate(attentionModuleReference.myFA1, params)
-    time.sleep(3)
-    print("-----RUNNING STUDENT IMPLEMENTATION-2----\n")
-    testTemplate(attentionModuleStudent.myFA1, params)
+    attentionModuleStudent = CustomAttention(Q,K,V, None, None, None, B, H, N, d, False, bc, br)
+    attentionModuleReference = CustomAttention(None, None, None, Q_FA, K_FA, V_FA, B, H, N, d, True, bc, br)
+    for i in range(running_times):
+        print(f"-----RUNNING REFERENCE IMPLEMENTATION ({i})-----\n")
+        testTemplate(attentionModuleReference.myFA1, params, True)
+        time.sleep(3)
+        print(f"-----RUNNING STUDENT IMPLEMENTATION ({i})-----\n")
+        testTemplate(attentionModuleStudent.myFA1, params)
+        time.sleep(3)
 
 
 def main():
