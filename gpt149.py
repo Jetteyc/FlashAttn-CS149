@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.cpp_extension import load
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, record_function, ProfilerActivity, tensorboard_trace_handler
 from flash_attn import flash_attn_func
 import os
 import shutil
@@ -23,20 +23,20 @@ if os.path.exists('./build'):
     shutil.rmtree('./build')
 os.makedirs('./build')
 
-# mr = load(
-#     name="custom_module",
-#     sources=["module.cpp", "kernel.cu"],
-#     extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
-#     build_directory='./build',
-#     verbose=True
-# )
 mr = load(
     name="custom_module",
     sources=["module.cpp", "kernel.cu"],
-    extra_cuda_cflags=["-arch=sm_86"],
+    extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
     build_directory='./build',
-    verbose=False
+    verbose=True
 )
+# mr = load(
+#     name="custom_module",
+#     sources=["module.cpp", "kernel.cu"],
+#     extra_cuda_cflags=["-arch=sm_86"],
+#     build_directory='./build',
+#     verbose=False
+# )
 class CustomAttention(nn.Module):
     def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256):
         super(nn.Module, self).__init__()
@@ -108,7 +108,16 @@ def badSoftmax(Q, K, V):
 
     return QKV
 
-def testTemplate(customFunc, params, is_fa_ref=False):
+
+
+def trace_handler(p):
+    output = p.key_averages().table(sort_by="cuda_time_total", row_limit=10)
+    print(output)
+    # p.export_chrome_trace("trace_" + str(p.step_num) + ".json")
+    tb_handler = tensorboard_trace_handler("tb_logs")
+    tb_handler(p)
+
+def testTemplate(customFunc, params, is_fa_ref=False, running_times=5):
     start = time.time()
     B, H, N, d = params
     Q, K, V = createQKVSimple(B, H, N, d)
@@ -116,11 +125,26 @@ def testTemplate(customFunc, params, is_fa_ref=False):
     end = time.time()
     pytorch_time = end - start
     print(f"pytorch_time: {pytorch_time}")
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        res = customFunc()
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+    # with torch.autograd.profiler.profile(use_device='cuda') as prof:
+    #     for i in range(running_times):
+    #         res = customFunc()
+    # print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
+
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+        record_shapes=True, profile_memory=True,
+        with_stack=True, with_modules=True, with_flops=True,
+        on_trace_ready=trace_handler
+    ) as p:
+        for i in range(running_times):
+            res = customFunc()
+            p.step()
+
     res_ref_cpu = res_ref.cpu().clone()
     res_cpu = res.cpu().clone()
+    print(res_cpu)
     if is_fa_ref:
         res_cpu = res_cpu.transpose(1, 2)
     # print("res_ref",res_ref_cpu)
@@ -148,13 +172,11 @@ def fa1Test(B, H, N, d, bc, br, running_times=5):
     params = (B, H, N, d)
     attentionModuleStudent = CustomAttention(Q,K,V, None, None, None, B, H, N, d, False, bc, br)
     attentionModuleReference = CustomAttention(None, None, None, Q_FA, K_FA, V_FA, B, H, N, d, True, bc, br)
-    for i in range(running_times):
-        print(f"-----RUNNING REFERENCE IMPLEMENTATION ({i})-----\n")
-        testTemplate(attentionModuleReference.myFA1, params, True)
-        time.sleep(3)
-        print(f"-----RUNNING STUDENT IMPLEMENTATION ({i})-----\n")
-        testTemplate(attentionModuleStudent.myFA1, params)
-        time.sleep(3)
+    print(f"-----RUNNING REFERENCE IMPLEMENTATION-----\n")
+    testTemplate(attentionModuleReference.myFA1, params, True)
+    time.sleep(3)
+    print(f"-----RUNNING STUDENT IMPLEMENTATION-----\n")
+    testTemplate(attentionModuleStudent.myFA1, params)
 
 
 def main():

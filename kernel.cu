@@ -4,8 +4,13 @@
 #include "kernel.h"
 #include <stdio.h>
 #include <float.h>
+#include <mma.h> 
+#define WMMA_M 16
+#define WMMA_N 16
+#define WMMA_K 16
+#define WARP_SIZE 32
 #define CUDART_NEG_INF_FP16 __ushort_as_half(0xFC00); // IEEE 754 半精度负无穷的十六进制表示
-
+using namespace nvcuda; 
 __global__ void matrixAddKernel(half* A, half* B, half* C, int size) {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     if (i < size) {
@@ -72,13 +77,24 @@ __device__ void computeAttention(
         mij[j] = CUDART_NEG_INF_FP16;
     }
     __syncthreads();
-    if (j < bc) {
-        for (int i = 0; i < br; i++) {
-            for (int k = 0; k < d; k++) {
-                Sij[i * bc + j] = __hadd(Sij[i * bc + j] , __hmul(Qi[i * d + k], Kj[j * d + k]));
-            }
-        }
-    }
+    // if (j < bc) {
+    //     for (int i = 0; i < br; i++) {
+    //         for (int k = 0; k < d; k++) {
+    //             Sij[i * bc + j] = __hadd(Sij[i * bc + j] , __hmul(Qi[i * d + k], Kj[j * d + k]));
+    //         }
+    //     }
+    // }
+    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, half> C_frag;
+    wmma::fill_fragment(C_frag, CUDART_ZERO_FP16);
+    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> Qi_frag;
+    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> Kj_frag;
+
+    wmma::load_matrix_sync(Qi_frag, Qi, d);
+    wmma::load_matrix_sync(Kj_frag, Kj, bc);
+
+    wmma::mma_sync(C_frag, Qi_frag, Kj_frag, C_frag);
+    wmma::store_matrix_sync(Sij, C_frag, bc, wmma::mem_row_major);
+
     __syncthreads();
     // check(Sij, br, bc, "Sij - 1");
     if (j < bc) {
@@ -159,30 +175,31 @@ __global__ void myFA1Kernel(
     // check(K, N, d, "K");
     // check(V, N, d, "V");
     // check(Q, N, d, "Q");
-    for (int j = 0; j < N; j += Bc) {
-        // load Kj, Vj
-        loadMatrix(K + step + j * d, Kj, min(N, j + Bc) - j, d);
-        loadMatrix(V + step + j * d, Vj, min(N, j + Bc) - j, d);
-        // check(Kj, min(N, j + Bc) - j, d, "Kj");
-        // check(Vj, min(N, j + Bc) - j, d, "Vj");
-        for (int i = 0; i < N; i += Br) {
-            if(tx < Br){
-                lnew[tx] = CUDART_ZERO_FP16;
-                mnew[tx] = CUDART_NEG_INF_FP16;
-                li[tx] = l[lm_offset + i + tx];
-                mi[tx] = m[lm_offset + i + tx];
-            }
-            __syncthreads();
-            // load Qi, Oi, li
-            loadMatrix(Q + step + i * d, Qi, min(N, i + Br) - i, d);
-            // check(Qi, min(N, i + Br) - i, d, "Qi");
-            loadMatrix(O + step + i * d, Oi, min(N, i + Br) - i, d);
-            // check(Oi, min(N, i + Br) - i, d, "Oi");
-            // check(li, 1, min(N, i + Br) - i, "li");
-            // check(mi, 1, min(N, i + Br) - i, "mi");
+    for (int i = 0; i < N; i += Br) {
+        // load Qi, Oi, li
+        loadMatrix(Q + step + i * d, Qi, min(N, i + Br) - i, d);
+        loadMatrix(O + step + i * d, Oi, min(N, i + Br) - i, d);
+        if(tx < Br){
+            lnew[tx] = CUDART_ZERO_FP16;
+            mnew[tx] = CUDART_NEG_INF_FP16;
+            li[tx] = l[lm_offset + i + tx];
+            mi[tx] = m[lm_offset + i + tx];
+        }
+        // check(Qi, min(N, i + Br) - i, d, "Qi");
+        // check(Oi, min(N, i + Br) - i, d, "Oi");
+        // check(li, 1, min(N, i + Br) - i, "li");
+        // check(mi, 1, min(N, i + Br) - i, "mi");
+        // check(lnew, 1, min(N, i + Br) - i, "lnew-before");
+        // check(mnew, 1, min(N, i + Br) - i, "mnew-before");
+        __syncthreads();
+        for (int j = 0; j < N; j += Bc) {
+            // load Kj, Vj
+            loadMatrix(K + step + j * d, Kj, min(N, j + Bc) - j, d);
+            loadMatrix(V + step + j * d, Vj, min(N, j + Bc) - j, d);
+            // check(Kj, min(N, j + Bc) - j, d, "Kj");
+            // check(Vj, min(N, j + Bc) - j, d, "Vj");
+            
             // Sij = QiKj_t/sqrtf(d), Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
-            // check(lnew, 1, min(N, i + Br) - i, "lnew-before");
-            // check(mnew, 1, min(N, i + Br) - i, "mnew-before");
             computeAttention(Qi, min(N, i + Br) - i, Kj, min(N, j + Bc) - j, Sij, Pij, lij, li, lnew, mij, mi, mnew, d);
             // check(Sij, min(N, i + Br) - i, min(N, j + Bc) - j, "Sij");
             // check(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, "Pij");
@@ -195,18 +212,20 @@ __global__ void myFA1Kernel(
             // Oi <- (liOi + PijVj) / lnew
             updateOutput(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, Vj, d, Oi, lnew, li, mij, mi, mnew);
             // Write Oi, lnew to O and L;
-            loadMatrix(Oi, O + step + i * d, min(N, i + Br) - i, d);
-            if(tx < min(N, i + Br) - i) {
-                l[lm_offset + i + tx] = lnew[tx];
-                m[lm_offset + i + tx] = mnew[tx];
-            }
             __syncthreads();
         }
+        loadMatrix(Oi, O + step + i * d, min(N, i + Br) - i, d);
+        if(tx < min(N, i + Br) - i) {
+            l[lm_offset + i + tx] = lnew[tx];
+            m[lm_offset + i + tx] = mnew[tx];
+        }
+        __syncthreads();
     }
-    
 }
 extern "C" void launchMyFA1(half* O, half* Q, half* K, half* V, half* l, half* m, int Bc, int Br,int B, int H, int N, int d
 ){
+    Bc = 16;
+    Br = 16;
     const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 6 * Br) * sizeof(half);
     int max_sram_size;
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
@@ -216,7 +235,7 @@ extern "C" void launchMyFA1(half* O, half* Q, half* K, half* V, half* l, half* m
     }
     printf("\nBr = %d, Bc = %d\nMax shared memory: %d, requested shared memory: %d \n\n", Br, Bc, max_sram_size, sram_size);
     dim3 blocks(B, H);
-    dim3 threads(Bc);
+    dim3 threads(WARP_SIZE);
     myFA1Kernel<<<blocks, threads, sram_size>>>(O, Q, K, V, l, m, Bc, Br, B, H, N, d);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
