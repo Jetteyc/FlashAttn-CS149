@@ -23,20 +23,20 @@ if os.path.exists('./build'):
     shutil.rmtree('./build')
 os.makedirs('./build')
 
-mr = load(
-    name="custom_module",
-    sources=["module.cpp", "kernel.cu"],
-    extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
-    build_directory='./build',
-    verbose=True
-)
 # mr = load(
 #     name="custom_module",
 #     sources=["module.cpp", "kernel.cu"],
-#     extra_cuda_cflags=["-arch=sm_86"],
+#     extra_cuda_cflags=["-arch=sm_86", "-g", "-G"],
 #     build_directory='./build',
-#     verbose=False
+#     verbose=True
 # )
+mr = load(
+    name="custom_module",
+    sources=["module.cpp", "kernel.cu"],
+    extra_cuda_cflags=["-arch=sm_86"],
+    build_directory='./build',
+    verbose=False
+)
 class CustomAttention(nn.Module):
     def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256):
         super(nn.Module, self).__init__()
@@ -126,29 +126,30 @@ def testTemplate(customFunc, params, is_fa_ref=False, running_times=5):
     pytorch_time = end - start
     print(f"pytorch_time: {pytorch_time}")
 
-    # with torch.autograd.profiler.profile(use_device='cuda') as prof:
-    #     for i in range(running_times):
-    #         res = customFunc()
-    # print(prof.key_averages().table(sort_by='cuda_time_total', row_limit=10))
-
-    with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
-        record_shapes=True, profile_memory=True,
-        with_stack=True, with_modules=True, with_flops=True,
-        on_trace_ready=trace_handler
-    ) as p:
-        for i in range(running_times):
-            res = customFunc()
-            p.step()
-
+    if not DEBUG:
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+            record_shapes=True, profile_memory=True,
+            with_stack=True, with_modules=True, with_flops=True,
+            on_trace_ready=trace_handler
+        ) as p:
+            for i in range(running_times):
+                res = customFunc()
+                p.step()
+    
+    else:
+        res = customFunc()
+        
+        
     res_ref_cpu = res_ref.cpu().clone()
+    if is_fa_ref == True: 
+        res = res.transpose(1, 2)
     res_cpu = res.cpu().clone()
-    print(res_cpu)
-    if is_fa_ref:
-        res_cpu = res_cpu.transpose(1, 2)
+    
     # print("res_ref",res_ref_cpu)
     # print("res",res_cpu)
+
     torch.allclose(res_ref_cpu, res_cpu, atol=1e-2, rtol=1e-4)
 
 
@@ -164,8 +165,15 @@ def mytest_simple():
 def fa1Test(B, H, N, d, bc, br, running_times=5):
     print("Running Test: Flash Attention - 1\n")
     # shape1
-    # N, d, B, H = 1024, 32, 1, 4
+    # N, d, B, H = 512, 32, 1, 4
     Q,K,V = createQKVSimple(B, H, N, d)
+    if DEBUG:
+        Q_cpu = Q.cpu().clone()
+        K_cpu = K.cpu().clone()
+        V_cpu = V.cpu().clone()
+        print("Q ", Q_cpu)
+        print("K ", K_cpu)
+        print("V ", V_cpu)
     Q_FA = Q.transpose(1, 2) # B, N, H, d
     K_FA = K.transpose(1, 2)
     V_FA = V.transpose(1, 2)
@@ -216,14 +224,13 @@ def main():
         if args.testname == "test":
             mytest_simple()
         elif args.testname == "fa1":
-            fa1Test(N, d, B, H, int(args.bc), int(args.br))
+            fa1Test(B, H, N, d, int(args.bc), int(args.br))
         else:
             print("Unknown test name: %s" % args.testname)
     else:
         print("Running inference using dnn model %s" % (args.model))
         from sample import run_sample
         run_sample(N, model_filename, args.testname)
-
         
 if __name__ == "__main__":
     main()
