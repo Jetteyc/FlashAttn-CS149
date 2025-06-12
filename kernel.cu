@@ -159,8 +159,8 @@ __global__ void myFA1Kernel(
     loadMatrix(Q + step + i * d, Qi, min(N, i + Br) - i, d);
     loadMatrix(O + step + i * d, Oi, min(N, i + Br) - i, d);
     if(tx < min(N, i + Br) - i){
-        li[tx] = l[lm_offset + i + tx];
-        mi[tx] = m[lm_offset + i + tx];
+        li[tx] = CUDART_ZERO_FP16;
+        mi[tx] = CUDART_NEG_INF_FP16;
     }
     check(Qi, min(N, i + Br) - i, d, "Qi");
     check(Oi, min(N, i + Br) - i, d, "Oi");

@@ -16,7 +16,7 @@ import os
 import shutil
 
 
-DEBUG = False
+DEBUG = True
 print("\nCompiling code into a PyTorch module...\n\n")
 
 if os.path.exists('./build'):
@@ -145,10 +145,12 @@ def testTemplate(customFunc, params, is_fa_ref=False, running_times=5):
     res_ref_cpu = res_ref.cpu().clone()
     if is_fa_ref == True: 
         res = res.transpose(1, 2)
+        
     res_cpu = res.cpu().clone()
-    
-    # print("res_ref",res_ref_cpu)
-    # print("res",res_cpu)
+
+    if DEBUG and is_fa_ref == False:
+        print("res_ref",res_ref_cpu)
+        print("res",res_cpu)
 
     torch.allclose(res_ref_cpu, res_cpu, atol=1e-2, rtol=1e-4)
 
@@ -223,7 +225,7 @@ def main():
         N = int(args.N)
         if args.testname == "test":
             mytest_simple()
-        elif args.testname == "fa1":
+        elif args.testname == "fa":
             fa1Test(B, H, N, d, int(args.bc), int(args.br))
         else:
             print("Unknown test name: %s" % args.testname)
