@@ -7,7 +7,7 @@ gpt149.py 是单独的 micro-benchmark，会 load 同一份 module.cpp 和参考
 
 ## 环境
 参考https://github.com/stanford-cs149/cs149gpt/issues/2
-```
+```py
 conda create -n gpt149
 conda activate gpt149
 conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 cpuonly python=3.10 numpy=1.26 ninja tiktoken -c pytorch -c conda-forge
@@ -76,10 +76,10 @@ mem usage:  4718592 bytes
 先计算QK结果的第一行，直接softmax，然后和V相乘，得到最终结果的第一行，然后再计算下一行。
 可见每一行计算完全独立,b、h维度也完全独立，这三层for循环可用OpenMP优化
 openmp的使用：
-```
+```cpp
 #pragma omp parallel for collapse(3)
-在for循环里面用at::Tensor ORowTensor = temp.index({torch::indexing::Slice(omp_get_thread_num(), torch::indexing::None)});每个任务要独占一个ORow数组，线程数通常是24，可由环境变量OMP_NUM_THREADS指定。
 ```
+在for循环里面用at::Tensor ORowTensor = temp.index({torch::indexing::Slice(omp_get_thread_num(), torch::indexing::None)});每个任务要独占一个ORow数组，线程数通常是24，可由环境变量OMP_NUM_THREADS指定。
 ```py
 python3 gpt149.py part3
 ```
@@ -97,3 +97,17 @@ mem usage:  557056 bytes
 ## Part 4:flash attn
 KV在外层做循环，Q在内层。
 最终Oi是以逐个br*d来更新的，内层循环完一次就会更新一次整个O，外层循环共更新了Tc次O。
+```py
+python3 gpt149.py part4
+```
+ref:
+Pytorch Execution Time: 1.143669843673706 
+Manual Execution Time:  0.25463151931762695
+cpu time:  254.153ms
+mem usage:  524288 bytes
+my:
+Pytorch Execution Time: 1.1569817066192627 
+Manual Execution Time:  0.07818055152893066
+cpu time:  77.819ms
+mem usage:  524288 bytes
+part3快于part4的原因，可能是因为part3的多线程会快于part4的单线程，而part4的方式又很难方便地加入openmp，只能通过ispc或者cuda来进行优化。
