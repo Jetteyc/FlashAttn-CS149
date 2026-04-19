@@ -75,22 +75,14 @@ export void part2_ispc(
             
             for (uniform int k = 0; k < d; k += L) {
 
-                for (uniform int i1 = i; i1 < min(i + L, N); i1++) {
-                    
-                    for (uniform int j1 = j; j1 < min(j + L, N); j1++) {
-                        float sum = 0;
-                        foreach (k1 = k ... min(k + L, d)) {
-                            float val1 = Q[i1 * d + k1];
-                            float val2 = K[j1 * d + k1];
-                            sum += val1 * val2;
-                        }
-                        uniform float sum1 = reduce_add(sum);
-                        uniform float sum2 = QK_t[i1 * N + j1];
-                        if(programIndex == 0) {
-                            QK_t[i1 * N + j1] = sum1 + sum2;
-                        }
+                foreach (i1 = i ... min(i + L, N), j1 = j ... min(j + L, N)) {
+                    float sum = 0;
+                    for (uniform int k1 = k; k1 < min(k + L, d); k1++) {
+                        float val1 = Q[i1 * d + k1];
+                        float val2 = K[j1 * d + k1];
+                        sum += val1 * val2;
                     }
-
+                    QK_t[i1 * N + j1] += sum;
                 }
 
             }
