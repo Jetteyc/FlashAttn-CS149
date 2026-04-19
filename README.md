@@ -39,6 +39,12 @@ Manual Execution Time:  0.08842945098876953
 cpu time:  88.418ms
 mem usage:  4718592 bytes
 
+ispc：
+Pytorch Execution Time: 1.1240646839141846 
+Manual Execution Time:  0.02565288543701172
+cpu time:  25.643ms
+mem usage:  4718592 bytes
+
 ## Part 2:仅分块
 在module.cpp补充myUnfusedAttentionBlocked。
 仅对矩阵乘法分块处理，softmax不变。
@@ -66,10 +72,17 @@ Pytorch Execution Time: 1.091418743133545
 Manual Execution Time:  0.08716082572937012 
 pu time:  87.149ms
 mem usage:  4718592 bytes
+
 my:
 Pytorch Execution Time: 1.0957069396972656 
 Manual Execution Time:  0.0744538307189941
 cpu time:  74.438ms
+mem usage:  4718592 bytes
+
+ispc：
+Pytorch Execution Time: 1.1333932876586914 
+Manual Execution Time:  0.02673196792602539
+cpu time:  26.72ms
 mem usage:  4718592 bytes
 
 ## Part 3:融合与OpenMP
@@ -88,10 +101,17 @@ Pytorch Execution Time: 1.0916287899017334
 Manual Execution Time:  0.02878284454345703 
 cpu time:  28.773ms
 mem usage:  557056 bytes
+
 my:
 Pytorch Execution Time: 1.0933377742767334 
 Manual Execution Time:  0.034758567810058594
 cpu time:  34.749ms
+mem usage:  557056 bytes
+
+ispc：
+Pytorch Execution Time: 1.1322789192199707 
+Manual Execution Time:  0.015625476837158203 
+cpu time:  15.616ms
 mem usage:  557056 bytes
 
 ## Part 4:flash attn
@@ -105,9 +125,33 @@ Pytorch Execution Time: 1.143669843673706
 Manual Execution Time:  0.25463151931762695
 cpu time:  254.153ms
 mem usage:  524288 bytes
+
 my:
 Pytorch Execution Time: 1.1569817066192627 
 Manual Execution Time:  0.07818055152893066
 cpu time:  77.819ms
 mem usage:  524288 bytes
+
+ispc：
+Pytorch Execution Time: 1.135465383529663 
+Manual Execution Time:  0.04098653793334961  
+cpu time:  40.683ms
+mem usage:  524288 bytes
+
 part3快于part4的原因，可能是因为part3的多线程会快于part4的单线程，而part4的方式又很难方便地加入openmp，只能通过ispc或者cuda来进行优化。
+
+## ispc
+uniform是全体lane共享，varying是每个lane一份，内层用foreach向量化，再用reduce_add把lane上的部分合成。
+```sh
+ispc -O3 --target=avx2-i32x8 --arch=x86-64 --pic module.ispc -h module_ispc.h -o module_ispc.o 
+```
+todo：
+多维foreach：
+```cpp
+foreach (i = 0 ... N, j = 0 ... M) {
+    // 这里的 i 和 j 会被映射到 SIMD 通道中
+    int index = i * M + j;
+    data[index] = ...;
+}
+```
+加速效果在上文。可能还有优化空间，比如提前转置来让读写连续，并且减少reduce_add等
