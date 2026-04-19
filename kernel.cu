@@ -63,7 +63,7 @@ __device__ void computeAttention(
     half* Sij, half* Pij, 
     half* lij, const half* li,
     half* mij, const half* mi,
-    int d
+    int d, int use_wmma, float* wmma_tile
 ) {
     int j = threadIdx.x;
     if(j < br) {
@@ -71,26 +71,40 @@ __device__ void computeAttention(
         mij[j] = mi[j];
     }
     __syncthreads();
-    if (j < bc) {
-        for (int i = 0; i < br; i++) {
-            Sij[i * bc + j] = CUDART_ZERO_FP16;
-            for (int k = 0; k < d; k++) {
-                Sij[i * bc + j] = __hadd(Sij[i * bc + j] , __hmul(Qi[i * d + k], Kj[j * d + k]));
+
+    bool wmma_ready = (use_wmma != 0) && (br % WMMA_M == 0) && (bc % WMMA_N == 0) && (d % WMMA_K == 0) && (blockDim.x >= WARP_SIZE);
+    if (wmma_ready) {
+        if (threadIdx.x < WARP_SIZE) {
+            for (int row = 0; row < br; row += WMMA_M) {
+                for (int col = 0; col < bc; col += WMMA_N) {
+                    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+                    wmma::fill_fragment(c_frag, 0.0f);
+                    for (int kk = 0; kk < d; kk += WMMA_K) {
+                        wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
+                        wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
+                        wmma::load_matrix_sync(a_frag, Qi + row * d + kk, d);
+                        wmma::load_matrix_sync(b_frag, Kj + col * d + kk, d);
+                        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+                    }
+                    wmma::store_matrix_sync(wmma_tile, c_frag, WMMA_N, wmma::mem_row_major);
+                    for (int idx = threadIdx.x; idx < WMMA_M * WMMA_N; idx += WARP_SIZE) {
+                        int tr = idx / WMMA_N;
+                        int tc = idx % WMMA_N;
+                        Sij[(row + tr) * bc + (col + tc)] = __float2half(wmma_tile[idx]);
+                    }
+                }
+            }
+        }
+    } else {
+        if (j < bc) {
+            for (int i = 0; i < br; i++) {
+                Sij[i * bc + j] = CUDART_ZERO_FP16;
+                for (int k = 0; k < d; k++) {
+                    Sij[i * bc + j] = __hadd(Sij[i * bc + j] , __hmul(Qi[i * d + k], Kj[j * d + k]));
+                }
             }
         }
     }
-    // wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, half> C_frag;
-    // wmma::fill_fragment(C_frag, CUDART_ZERO_FP16);
-    // wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> Qi_frag;
-    // wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> Kj_frag;
-
-    // wmma::load_matrix_sync(Qi_frag, Qi, d);
-    // wmma::load_matrix_sync(Kj_frag, Kj, bc);
-
-    // wmma::mma_sync(C_frag, Qi_frag, Kj_frag, C_frag);
-    // wmma::store_matrix_sync(Sij, C_frag, bc, wmma::mem_row_major);
-
-    
     __syncthreads();
     if (j < br) {
         for (int i = 0; i < bc; i++) {
@@ -132,7 +146,7 @@ __device__ void updateOutput(
 
 __global__ void myFA1Kernel(
     half* O, half* Q, half* K, half* V, half* l, half* m, 
-    int Bc, int Br,int B, int H, int N, int d
+    int Bc, int Br,int B, int H, int N, int d, int use_wmma
 ){
     int b = blockIdx.x; 
     int h = blockIdx.y;
@@ -141,7 +155,8 @@ __global__ void myFA1Kernel(
     int step = b * H * N * d + h * N * d;
     int lm_offset = b * H * N + h * N;
     extern __shared__ half shared_mem[];
-    half* Qi = shared_mem; // (Br, d)
+    float* wmma_tile = reinterpret_cast<float*>(shared_mem); // (16,16)
+    half* Qi = reinterpret_cast<half*>(wmma_tile + WMMA_M * WMMA_N); // (Br, d)
     half* Kj = Qi + Br * d; // (Bc, d)
     half* Vj = Kj + Bc * d; // (Bc, d)
     half* Oi = Vj + Bc * d; // (Br, d)
@@ -175,7 +190,10 @@ __global__ void myFA1Kernel(
         check(Vj, min(N, j + Bc) - j, d, "Vj");
         
         // Sij = QiKj_t/sqrtf(d), Pij = exp(Sij), Lij = rowsum(Pij), Lnew = Li + Lij
-        computeAttention(Qi, min(N, i + Br) - i, Kj, min(N, j + Bc) - j, Sij, Pij, lij, li,mij, mi, d);
+        computeAttention(
+            Qi, min(N, i + Br) - i, Kj, min(N, j + Bc) - j,
+            Sij, Pij, lij, li, mij, mi, d, use_wmma, wmma_tile
+        );
         check(Sij, min(N, i + Br) - i, min(N, j + Bc) - j, "Sij");
         check(Pij, min(N, i + Br) - i, min(N, j + Bc) - j, "Pij");
         check(lij, 1, min(N, i + Br) - i, "lij");
@@ -202,19 +220,26 @@ __global__ void myFA1Kernel(
     loadMatrix(Oi, O + step + i * d, min(N, i + Br) - i, d);
     
 }
-extern "C" void launchMyFA1(half* O, half* Q, half* K, half* V, half* l, half* m, int Bc, int Br,int B, int H, int N, int d
+extern "C" void launchMyFA1(
+    half* O, half* Q, half* K, half* V, half* l, half* m,
+    int Bc, int Br,int B, int H, int N, int d, int use_wmma
 ){
-    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 4 * Br) * sizeof(half);
+    const int sram_size = (2 * Br * d + 2 * Bc * d + 2 * Br * Bc + 4 * Br) * sizeof(half)
+        + WMMA_M * WMMA_N * sizeof(float);
     int max_sram_size;
+# ifdef ENABLE_CHECK
     cudaDeviceGetAttribute(&max_sram_size, cudaDevAttrMaxSharedMemoryPerBlock, 0);
+# endif
     if(Br > Bc) {
         printf("Br > Bc\n");
         return;
     }
+# ifdef ENABLE_CHECK
     printf("B = %d, H = %d, N = %d, d = %d\nBr = %d, Bc = %d\nMax shared memory: %d, requested shared memory: %d \n\n", B, H, N, d, Br, Bc, max_sram_size, sram_size);
+# endif
     dim3 blocks(B, H, (N + Br - 1) / Br);
     dim3 threads(Bc);
-    myFA1Kernel<<<blocks, threads, sram_size>>>(O, Q, K, V, l, m, Bc, Br, B, H, N, d);
+    myFA1Kernel<<<blocks, threads, sram_size>>>(O, Q, K, V, l, m, Bc, Br, B, H, N, d, use_wmma);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("CUDA error: %s\n", cudaGetErrorString(err));

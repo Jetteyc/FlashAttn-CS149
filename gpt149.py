@@ -33,7 +33,7 @@ os.makedirs('./build')
 mr = load(
     name="custom_module",
     sources=["module.cpp", "kernel.cu"],
-    extra_cuda_cflags=["-arch=sm_86"],
+    extra_cuda_cflags=["-arch=sm_120"],
     build_directory='./build',
     verbose=False
 )
@@ -41,7 +41,7 @@ mr = load(
 
 class MyFA1Function(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, Q, K, V, bc, br):
+    def forward(ctx, Q, K, V, bc, br, use_wmma):
         B, H, N, d = Q.shape
         L = torch.zeros((B, H, N), device=Q.device, dtype=Q.dtype)
         M = torch.zeros((B, H, N), device=Q.device, dtype=Q.dtype)
@@ -57,6 +57,7 @@ class MyFA1Function(torch.autograd.Function):
             H,
             N,
             d,
+            int(use_wmma),
         )
         ctx.save_for_backward(Q, K, V)
         return O
@@ -79,15 +80,15 @@ class MyFA1Function(torch.autograd.Function):
                 retain_graph=False,
                 create_graph=False,
             )
-        return dQ.to(Q.dtype), dK.to(K.dtype), dV.to(V.dtype), None, None
+        return dQ.to(Q.dtype), dK.to(K.dtype), dV.to(V.dtype), None, None, None
 
 
-def myFA1_autograd(Q, K, V, bc, br):
-    return MyFA1Function.apply(Q, K, V, bc, br)
+def myFA1_autograd(Q, K, V, bc, br, use_wmma):
+    return MyFA1Function.apply(Q, K, V, bc, br, use_wmma)
 
 
 class CustomAttention(nn.Module):
-    def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256):
+    def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256, use_wmma=False):
         super(nn.Module, self).__init__()
         self.Q=Q
         self.K=K
@@ -102,6 +103,7 @@ class CustomAttention(nn.Module):
         self.isRef=isRef
         self.bc=bc
         self.br=br
+        self.use_wmma=use_wmma
 
     def myFA1(self):
         if self.Q is not None:
@@ -120,7 +122,7 @@ class CustomAttention(nn.Module):
             Q = self.Q.contiguous()
             K = self.K.contiguous()
             V = self.V.contiguous()
-            out = myFA1_autograd(Q, K, V, self.bc, self.br)
+            out = myFA1_autograd(Q, K, V, self.bc, self.br, self.use_wmma)
         return out
     
 def createQKVSimple(B, H, N, d, device="cuda"):
@@ -164,31 +166,36 @@ def benchmarkCudaOp(customFunc, warmup_iters=5, benchmark_iters=20):
     torch.cuda.synchronize()
 
     timings_ms = []
+    peak_mem_bytes = 0
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     res = None
     for _ in range(benchmark_iters):
+        torch.cuda.reset_peak_memory_stats()
         start_event.record()
         res = customFunc()
         end_event.record()
         torch.cuda.synchronize()
         timings_ms.append(start_event.elapsed_time(end_event))
+        peak_mem_bytes = max(peak_mem_bytes, torch.cuda.max_memory_allocated())
     avg_ms = sum(timings_ms) / len(timings_ms)
     min_ms = min(timings_ms)
     max_ms = max(timings_ms)
-    return res, avg_ms, min_ms, max_ms
+    return res, avg_ms, min_ms, max_ms, peak_mem_bytes
 
 
 def testTemplate(customFunc, res_ref, is_fa_ref=False, warmup_iters=5, benchmark_iters=20, profile_once=True):
-    res, avg_ms, min_ms, max_ms = benchmarkCudaOp(
+    res, avg_ms, min_ms, max_ms, peak_mem_bytes = benchmarkCudaOp(
         customFunc,
         warmup_iters=warmup_iters,
         benchmark_iters=benchmark_iters,
     )
+    peak_mem_mb = peak_mem_bytes / (1024 * 1024)
     print(
-        f"cuda_time_ms (avg/min/max over {benchmark_iters} iters): "
-        f"{avg_ms:.3f} / {min_ms:.3f} / {max_ms:.3f}"
+        f"cuda_time (avg/min/max over {benchmark_iters} iters) [ms]: "
+        f"{avg_ms:.3f} ms / {min_ms:.3f} ms / {max_ms:.3f} ms"
     )
+    print(f"cuda_peak_memory (max over {benchmark_iters} iters) [MB]: {peak_mem_mb:.2f} MB")
     if profile_once:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
             customFunc()
@@ -201,6 +208,14 @@ def testTemplate(customFunc, res_ref, is_fa_ref=False, warmup_iters=5, benchmark
     is_close = torch.allclose(res_ref_cpu, res_cpu, atol=1e-2, rtol=1e-4)
     max_abs_diff = (res_ref_cpu - res_cpu).abs().max().item()
     print(f"allclose={is_close}, max_abs_diff={max_abs_diff:.6f}")
+    return {
+        "avg_ms": avg_ms,
+        "min_ms": min_ms,
+        "max_ms": max_ms,
+        "peak_mem_mb": peak_mem_mb,
+        "allclose": is_close,
+        "max_abs_diff": max_abs_diff,
+    }
 
 
 def mytest_simple():
@@ -212,7 +227,7 @@ def mytest_simple():
     assert torch.allclose(C, expected, atol=1e-3), f"Test failed! Expected {expected}, got {C}"
     print("Test passed! Result:", C)
 
-def fa1Test(B, H, N, d, bc, br, running_times=5):
+def fa1Test(B, H, N, d, bc, br, running_times=5, use_wmma=False):
     print("Running Test: Flash Attention - 1\n")
     # shape1
     # N, d, B, H = 1024, 32, 1, 4
@@ -221,25 +236,52 @@ def fa1Test(B, H, N, d, bc, br, running_times=5):
     Q_FA = Q.transpose(1, 2) # B, N, H, d
     K_FA = K.transpose(1, 2)
     V_FA = V.transpose(1, 2)
-    attentionModuleStudent = CustomAttention(Q,K,V, None, None, None, B, H, N, d, False, bc, br)
+    attentionModuleStudent = CustomAttention(Q,K,V, None, None, None, B, H, N, d, False, bc, br, use_wmma=use_wmma)
     attentionModuleReference = CustomAttention(None, None, None, Q_FA, K_FA, V_FA, B, H, N, d, True, bc, br)
+    ref_stats = []
+    student_stats = []
     for i in range(running_times):
         print(f"-----RUNNING REFERENCE IMPLEMENTATION ({i})-----\n")
-        testTemplate(attentionModuleReference.myFA1, res_ref, True)
+        ref_stats.append(
+            testTemplate(
+                attentionModuleReference.myFA1,
+                res_ref,
+                True,
+                profile_once=(i == 0),
+            )
+        )
         time.sleep(3)
         print(f"-----RUNNING STUDENT IMPLEMENTATION ({i})-----\n")
-        testTemplate(attentionModuleStudent.myFA1, res_ref)
+        student_stats.append(
+            testTemplate(
+                attentionModuleStudent.myFA1,
+                res_ref,
+                profile_once=(i == 0),
+            )
+        )
         time.sleep(3)
 
+    def summarize_stats(name, stats_list):
+        avg_cuda_ms = sum(s["avg_ms"] for s in stats_list) / len(stats_list)
+        avg_peak_mem_mb = sum(s["peak_mem_mb"] for s in stats_list) / len(stats_list)
+        print(
+            f"FINAL SUMMARY [{name}] -> "
+            f"avg_cuda_time={avg_cuda_ms:.3f} ms, avg_peak_mem={avg_peak_mem_mb:.2f} MB"
+        )
 
-def fa1BackwardSmokeTest(B, H, N, d, bc, br):
+    print("\n===== FINAL BENCHMARK SUMMARY =====")
+    summarize_stats("REFERENCE", ref_stats)
+    summarize_stats("STUDENT", student_stats)
+
+
+def fa1BackwardSmokeTest(B, H, N, d, bc, br, use_wmma=False):
     print("Running Test: Flash Attention - 1 Backward Smoke Test\n")
     Q, K, V = createQKVSimple(B, H, N, d)
     Q = Q.detach().requires_grad_(True)
     K = K.detach().requires_grad_(True)
     V = V.detach().requires_grad_(True)
 
-    out = myFA1_autograd(Q, K, V, bc, br)
+    out = myFA1_autograd(Q, K, V, bc, br, use_wmma)
     loss = out.float().mean()
     loss.backward()
 
@@ -247,7 +289,7 @@ def fa1BackwardSmokeTest(B, H, N, d, bc, br):
         has_grad = grad is not None
         all_finite = bool(torch.isfinite(grad).all().item()) if has_grad else False
         grad_norm = float(grad.float().norm().item()) if has_grad else float("nan")
-        print(f"{name}.grad exists={has_grad}, finite={all_finite}, norm={grad_norm:.6f}")
+        print(f"{name}.grad exists={has_grad}, finite={all_finite}, norm={grad_norm:.6f} (unitless)")
 
 
 def main():
@@ -263,6 +305,8 @@ def main():
     parser.add_argument("-bc",  default="32", help="Flash Attention Bc Size")
     parser.add_argument("-br", default="32", help="Flash Attention Br Size")
     parser.add_argument("-N", default="1024", help="Flash Attention Br Size")
+    parser.add_argument("-d", default="32", help="Flash Attention head dimension")
+    parser.add_argument("--impl", choices=["cuda", "wmma"], default="cuda", help="student kernel implementation")
 
     args = parser.parse_args()
 
@@ -284,15 +328,23 @@ def main():
     
     if args.inference == False:
         N = int(args.N)
+        d = int(args.d)
+        use_wmma = (args.impl == "wmma")
         if args.testname == "test":
             mytest_simple()
         elif args.testname == "fa1":
             # Keep argument order aligned with fa1Test(B, H, N, d, ...)
-            print(f"fa1 config: B={B}, H={H}, N={N}, d={d}, bc={int(args.bc)}, br={int(args.br)}")
-            fa1Test(B, H, N, d, int(args.bc), int(args.br))
+            print(
+                f"fa1 config: B={B}, H={H}, N={N}, d={d}, "
+                f"bc={int(args.bc)}, br={int(args.br)}, impl={args.impl}"
+            )
+            fa1Test(B, H, N, d, int(args.bc), int(args.br), use_wmma=use_wmma)
         elif args.testname == "fa1_bw":
-            print(f"fa1_bw config: B={B}, H={H}, N={N}, d={d}, bc={int(args.bc)}, br={int(args.br)}")
-            fa1BackwardSmokeTest(B, H, N, d, int(args.bc), int(args.br))
+            print(
+                f"fa1_bw config: B={B}, H={H}, N={N}, d={d}, "
+                f"bc={int(args.bc)}, br={int(args.br)}, impl={args.impl}"
+            )
+            fa1BackwardSmokeTest(B, H, N, d, int(args.bc), int(args.br), use_wmma=use_wmma)
         else:
             print("Unknown test name: %s" % args.testname)
     else:

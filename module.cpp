@@ -24,7 +24,7 @@ torch::Tensor mytest(torch::Tensor A, torch::Tensor B) {
 
 torch::Tensor myFA1(torch::Tensor QTensor, torch::Tensor KTensor, torch::Tensor VTensor, 
     torch::Tensor LTensor, torch::Tensor MTensor, 
-    int Bc, int Br,int B, int H, int N, int d) {
+    int Bc, int Br,int B, int H, int N, int d, int use_wmma) {
         
     auto device = QTensor.device();
     auto options = torch::TensorOptions().dtype(torch::kHalf).device(device);
@@ -47,7 +47,7 @@ torch::Tensor myFA1(torch::Tensor QTensor, torch::Tensor KTensor, torch::Tensor 
     half* V = (half*)(VTensor.data_ptr<at::Half>());
     half* l = (half*)(LTensor.data_ptr<at::Half>());
     half* m = (half*)(MTensor.data_ptr<at::Half>());
-    launchMyFA1(O, Q, K, V, l, m, Bc, Br, B, H, N, d);
+    launchMyFA1(O, Q, K, V, l, m, Bc, Br, B, H, N, d, use_wmma);
     return OTensor;
 }
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
