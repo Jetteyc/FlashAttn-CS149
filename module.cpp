@@ -48,9 +48,7 @@ torch::Tensor myFA1(torch::Tensor QTensor, torch::Tensor KTensor, torch::Tensor 
     half* l = (half*)(LTensor.data_ptr<at::Half>());
     half* m = (half*)(MTensor.data_ptr<at::Half>());
     launchMyFA1(O, Q, K, V, l, m, Bc, Br, B, H, N, d);
-    // cudaDeviceReset();
-    cudaDeviceSynchronize();
-    return torch::from_blob(O, {B, H, N, d}, torch::TensorOptions().dtype(torch::kHalf).device(device));
+    return OTensor;
 }
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("mytest", &mytest, "Test function for matrix addition");
