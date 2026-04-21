@@ -32,20 +32,20 @@ os.makedirs('./build')
 # )
 mr = load(
     name="custom_module",
-    sources=["module.cpp", "kernel.cu"],
+    sources=["module.cpp", "kernel.cu", "kernel_fa2.cu", "kernel_fa2_bwd.cu"],
     extra_cuda_cflags=["-arch=sm_120"],
     build_directory='./build',
     verbose=False
 )
 
 
-class MyFA1Function(torch.autograd.Function):
+class MyFA2Function(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, Q, K, V, bc, br, use_wmma):
+    def forward(ctx, Q, K, V, bc, br, causal: bool):
         B, H, N, d = Q.shape
-        L = torch.zeros((B, H, N), device=Q.device, dtype=Q.dtype)
-        M = torch.zeros((B, H, N), device=Q.device, dtype=Q.dtype)
-        O = mr.myFA1(
+        L = torch.zeros((B, H, N), device=Q.device, dtype=torch.float32)
+        M = torch.zeros((B, H, N), device=Q.device, dtype=torch.float32)
+        O = mr.myFA2(
             Q.contiguous(),
             K.contiguous(),
             V.contiguous(),
@@ -57,72 +57,99 @@ class MyFA1Function(torch.autograd.Function):
             H,
             N,
             d,
-            int(use_wmma),
+            int(causal),
         )
-        ctx.save_for_backward(Q, K, V)
+        ctx.save_for_backward(Q, K, V, L)
+        ctx.bc = int(bc)
+        ctx.br = int(br)
+        ctx.causal = bool(causal)
         return O
 
     @staticmethod
     def backward(ctx, dO):
-        Q, K, V = ctx.saved_tensors
-        with torch.enable_grad():
-            Q_ref = Q.detach().float().requires_grad_(True)
-            K_ref = K.detach().float().requires_grad_(True)
-            V_ref = V.detach().float().requires_grad_(True)
-            scale = 1.0 / math.sqrt(Q_ref.shape[-1])
-            scores = torch.matmul(Q_ref, K_ref.transpose(-2, -1)) * scale
-            probs = torch.softmax(scores, dim=-1)
-            out_ref = torch.matmul(probs, V_ref)
-            dQ, dK, dV = torch.autograd.grad(
-                out_ref,
-                (Q_ref, K_ref, V_ref),
-                grad_outputs=dO.float(),
-                retain_graph=False,
-                create_graph=False,
-            )
-        return dQ.to(Q.dtype), dK.to(K.dtype), dV.to(V.dtype), None, None, None
+        Q, K, V, L = ctx.saved_tensors
+        bc = ctx.bc
+        br = ctx.br
+        causal = ctx.causal
+        B, H, N, d = Q.shape
+        dQ = torch.zeros_like(Q)
+        dK = torch.zeros_like(K)
+        dV = torch.zeros_like(V)
+        mr.myFA2_backward(
+            dQ,
+            dK,
+            dV,
+            Q.contiguous(),
+            K.contiguous(),
+            V.contiguous(),
+            dO.contiguous(),
+            L,
+            bc,
+            br,
+            B,
+            H,
+            N,
+            d,
+            int(causal),
+        )
+        return dQ, dK, dV, None, None, None
 
 
-def myFA1_autograd(Q, K, V, bc, br, use_wmma):
-    return MyFA1Function.apply(Q, K, V, bc, br, use_wmma)
+def myFA2_autograd(Q, K, V, bc, br, causal: bool = False):
+    return MyFA2Function.apply(Q, K, V, bc, br, causal)
 
 
 class CustomAttention(nn.Module):
-    def __init__(self, Q, K, V, Q_FA, K_FA, V_FA, B, H, N, d, isRef=False, bc=256, br=256, use_wmma=False):
+    def __init__(
+        self,
+        Q,
+        K,
+        V,
+        Q_FA,
+        K_FA,
+        V_FA,
+        B,
+        H,
+        N,
+        d,
+        isRef=False,
+        bc=256,
+        br=256,
+        causal=False,
+    ):
         super(nn.Module, self).__init__()
-        self.Q=Q
-        self.K=K
-        self.V=V
+        self.Q = Q
+        self.K = K
+        self.V = V
         self.Q_FA = Q_FA
         self.K_FA = K_FA
         self.V_FA = V_FA
-        self.B=B
-        self.H=H
-        self.N=N
-        self.d=d
-        self.isRef=isRef
-        self.bc=bc
-        self.br=br
-        self.use_wmma=use_wmma
+        self.B = B
+        self.H = H
+        self.N = N
+        self.d = d
+        self.isRef = isRef
+        self.bc = bc
+        self.br = br
+        self.causal = causal
 
-    def myFA1(self):
+    def run_forward(self):
         if self.Q is not None:
             device = self.Q.device
         else:
             device = self.Q_FA.device
         d = self.d
-        L = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
-        M = torch.zeros((self.B, self.H, self.N), device=device, dtype=torch.float16)
         if self.isRef:
             with record_function("REFERENCE - FLASH ATTENTION"):
-                out = flash_attn_func(self.Q_FA, self.K_FA, self.V_FA)
-                # out = badSoftmax(self.Q, self.K, self.V)
+                out = flash_attn_func(
+                    self.Q_FA, self.K_FA, self.V_FA, causal=self.causal
+                )
             return out
-        with record_function("STUDENT - FLASH ATTENTION - v1"):
-            Q = self.Q.contiguous()
-            K = self.K.contiguous()
-            V = self.V.contiguous()
-            out = myFA1_autograd(Q, K, V, self.bc, self.br, self.use_wmma)
+        Q = self.Q.contiguous()
+        K = self.K.contiguous()
+        V = self.V.contiguous()
+        with record_function("STUDENT - FLASH ATTENTION - v2"):
+            out = myFA2_autograd(Q, K, V, self.bc, self.br, self.causal)
         return out
     
 def createQKVSimple(B, H, N, d, device="cuda"):
@@ -138,10 +165,16 @@ def createQKVSimple(B, H, N, d, device="cuda"):
                     V[b][h][i][j] = 0.00015 * i + 0.0008 * j
     return Q.to(device), K.to(device), V.to(device)
 
-def badSoftmax(Q, K, V):
+def badSoftmax(Q, K, V, causal: bool = False):
     # 输入形状为 (B, H, N, d)
     d = Q.shape[-1]
     QK = Q @ K.transpose(-2, -1) * (1.0 / math.sqrt(d))
+    if causal:
+        N = QK.shape[-1]
+        mask = torch.triu(
+            torch.ones((N, N), device=QK.device, dtype=torch.bool), diagonal=1
+        )
+        QK = QK.masked_fill(mask.view(1, 1, N, N), float("-inf"))
 
     P = torch.exp(QK)
     Lij = P.sum(dim=-1, keepdim=True)
@@ -161,6 +194,30 @@ def badSoftmax(Q, K, V):
 
 def benchmarkCudaOp(customFunc, warmup_iters=5, benchmark_iters=20):
     # Warm up kernels and caches first.
+    for _ in range(warmup_iters):
+        customFunc()
+    torch.cuda.synchronize()
+
+    timings_ms = []
+    peak_mem_bytes = 0
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    res = None
+    for _ in range(benchmark_iters):
+        torch.cuda.reset_peak_memory_stats()
+        start_event.record()
+        res = customFunc()
+        end_event.record()
+        torch.cuda.synchronize()
+        timings_ms.append(start_event.elapsed_time(end_event))
+        peak_mem_bytes = max(peak_mem_bytes, torch.cuda.max_memory_allocated())
+    avg_ms = sum(timings_ms) / len(timings_ms)
+    min_ms = min(timings_ms)
+    max_ms = max(timings_ms)
+    return res, avg_ms, min_ms, max_ms, peak_mem_bytes
+
+
+def benchmarkBackwardOp(customFunc, warmup_iters=5, benchmark_iters=20):
     for _ in range(warmup_iters):
         customFunc()
     torch.cuda.synchronize()
@@ -227,24 +284,26 @@ def mytest_simple():
     assert torch.allclose(C, expected, atol=1e-3), f"Test failed! Expected {expected}, got {C}"
     print("Test passed! Result:", C)
 
-def fa1Test(B, H, N, d, bc, br, running_times=5, use_wmma=False):
-    print("Running Test: Flash Attention - 1\n")
-    # shape1
-    # N, d, B, H = 1024, 32, 1, 4
-    Q,K,V = createQKVSimple(B, H, N, d)
-    res_ref = badSoftmax(Q, K, V)
-    Q_FA = Q.transpose(1, 2) # B, N, H, d
+def flash_attn_benchmark(B, H, N, d, bc, br, running_times=5, causal=False):
+    print("Running Test: FlashAttention-2 forward (student CUDA vs reference)\n")
+    Q, K, V = createQKVSimple(B, H, N, d)
+    res_ref = badSoftmax(Q, K, V, causal=causal)
+    Q_FA = Q.transpose(1, 2)  # B, N, H, d
     K_FA = K.transpose(1, 2)
     V_FA = V.transpose(1, 2)
-    attentionModuleStudent = CustomAttention(Q,K,V, None, None, None, B, H, N, d, False, bc, br, use_wmma=use_wmma)
-    attentionModuleReference = CustomAttention(None, None, None, Q_FA, K_FA, V_FA, B, H, N, d, True, bc, br)
+    attention_module_student = CustomAttention(
+        Q, K, V, None, None, None, B, H, N, d, False, bc, br, causal
+    )
+    attention_module_reference = CustomAttention(
+        None, None, None, Q_FA, K_FA, V_FA, B, H, N, d, True, bc, br, causal
+    )
     ref_stats = []
     student_stats = []
     for i in range(running_times):
         print(f"-----RUNNING REFERENCE IMPLEMENTATION ({i})-----\n")
         ref_stats.append(
             testTemplate(
-                attentionModuleReference.myFA1,
+                attention_module_reference.run_forward,
                 res_ref,
                 True,
                 profile_once=(i == 0),
@@ -254,7 +313,7 @@ def fa1Test(B, H, N, d, bc, br, running_times=5, use_wmma=False):
         print(f"-----RUNNING STUDENT IMPLEMENTATION ({i})-----\n")
         student_stats.append(
             testTemplate(
-                attentionModuleStudent.myFA1,
+                attention_module_student.run_forward,
                 res_ref,
                 profile_once=(i == 0),
             )
@@ -274,22 +333,67 @@ def fa1Test(B, H, N, d, bc, br, running_times=5, use_wmma=False):
     summarize_stats("STUDENT", student_stats)
 
 
-def fa1BackwardSmokeTest(B, H, N, d, bc, br, use_wmma=False):
-    print("Running Test: Flash Attention - 1 Backward Smoke Test\n")
-    Q, K, V = createQKVSimple(B, H, N, d)
-    Q = Q.detach().requires_grad_(True)
-    K = K.detach().requires_grad_(True)
-    V = V.detach().requires_grad_(True)
+def fa2Test(B, H, N, d, bc, br, running_times=5, causal=False):
+    flash_attn_benchmark(B, H, N, d, bc, br, running_times, causal=causal)
 
-    out = myFA1_autograd(Q, K, V, bc, br, use_wmma)
-    loss = out.float().mean()
-    loss.backward()
 
-    for name, grad in (("Q", Q.grad), ("K", K.grad), ("V", V.grad)):
-        has_grad = grad is not None
-        all_finite = bool(torch.isfinite(grad).all().item()) if has_grad else False
-        grad_norm = float(grad.float().norm().item()) if has_grad else float("nan")
-        print(f"{name}.grad exists={has_grad}, finite={all_finite}, norm={grad_norm:.6f} (unitless)")
+def fa2_backward_smoke_test(B, H, N, d, bc, br, causal=False):
+    print("Running Test: Flash Attention - 2 backward benchmark (CUDA vs PyTorch reference)\n")
+    torch.manual_seed(0)
+    Q0 = torch.randn(B, H, N, d, device="cuda", dtype=torch.float16)
+    K0 = torch.randn(B, H, N, d, device="cuda", dtype=torch.float16)
+    V0 = torch.randn(B, H, N, d, device="cuda", dtype=torch.float16)
+
+    def student_backward_once():
+        Q = Q0.detach().clone().requires_grad_(True)
+        K = K0.detach().clone().requires_grad_(True)
+        V = V0.detach().clone().requires_grad_(True)
+        out = myFA2_autograd(Q, K, V, bc, br, causal)
+        out.float().sum().backward()
+        return Q.grad.detach(), K.grad.detach(), V.grad.detach()
+
+    def reference_backward_once():
+        Qr = Q0.detach().clone().float().requires_grad_(True)
+        Kr = K0.detach().clone().float().requires_grad_(True)
+        Vr = V0.detach().clone().float().requires_grad_(True)
+        scale = 1.0 / math.sqrt(d)
+        scores = torch.matmul(Qr, Kr.transpose(-2, -1)) * scale
+        if causal:
+            mask = torch.triu(
+                torch.ones((N, N), device=scores.device, dtype=torch.bool), diagonal=1
+            )
+            scores = scores.masked_fill(mask.view(1, 1, N, N), float("-inf"))
+        probs = torch.softmax(scores, dim=-1)
+        out_ref = torch.matmul(probs, Vr)
+        out_ref.sum().backward()
+        return Qr.grad.detach(), Kr.grad.detach(), Vr.grad.detach()
+
+    print("-----RUNNING REFERENCE BACKWARD-----\n")
+    ref_grads, ref_avg_ms, ref_min_ms, ref_max_ms, ref_peak_bytes = benchmarkBackwardOp(
+        reference_backward_once, 5, 20
+    )
+    print(
+        f"reference backward cuda_time (avg/min/max over 20 iters) [ms]: "
+        f"{ref_avg_ms:.3f} / {ref_min_ms:.3f} / {ref_max_ms:.3f}"
+    )
+    print(f"reference backward peak memory [MB]: {ref_peak_bytes / (1024*1024):.2f}")
+
+    print("-----RUNNING STUDENT BACKWARD-----\n")
+    stu_grads, stu_avg_ms, stu_min_ms, stu_max_ms, stu_peak_bytes = benchmarkBackwardOp(
+        student_backward_once, 5, 20
+    )
+    print(
+        f"student backward cuda_time (avg/min/max over 20 iters) [ms]: "
+        f"{stu_avg_ms:.3f} / {stu_min_ms:.3f} / {stu_max_ms:.3f}"
+    )
+    print(f"student backward peak memory [MB]: {stu_peak_bytes / (1024*1024):.2f}")
+
+    atol, rtol = 5e-2, 1e-2
+    names = ("Q", "K", "V")
+    for name, g_cuda, g_ref in zip(names, stu_grads, ref_grads):
+        ok = torch.allclose(g_cuda.float(), g_ref, atol=atol, rtol=rtol)
+        mad = (g_cuda.float() - g_ref).abs().max().item()
+        print(f"{name}.grad allclose={ok}, max_abs_diff={mad:.6f} (atol={atol}, rtol={rtol})")
 
 
 def main():
@@ -299,15 +403,22 @@ def main():
     H=4
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("testname", default="fa1", help="name of test to run: test, fa1, fa1_bw")
+    parser.add_argument(
+        "testname",
+        default="fa2",
+        help="name of test to run: test, fa2, fa2_bw",
+    )
     parser.add_argument("-m", "--model", default="shakes128", help="name of model to use: shakes128, shakes1024, shakes2048, kayvon")
     parser.add_argument("--inference", action="store_true", default=False, help="run gpt inference")
     parser.add_argument("-bc",  default="32", help="Flash Attention Bc Size")
     parser.add_argument("-br", default="32", help="Flash Attention Br Size")
     parser.add_argument("-N", default="1024", help="Flash Attention Br Size")
     parser.add_argument("-d", default="32", help="Flash Attention head dimension")
-    parser.add_argument("--impl", choices=["cuda", "wmma"], default="cuda", help="student kernel implementation")
-
+    parser.add_argument(
+        "--causal",
+        action="store_true",
+        help="Use causal masking (forward + backward)",
+    )
     args = parser.parse_args()
 
     if args.model == "shakes128":
@@ -329,22 +440,21 @@ def main():
     if args.inference == False:
         N = int(args.N)
         d = int(args.d)
-        use_wmma = (args.impl == "wmma")
         if args.testname == "test":
             mytest_simple()
-        elif args.testname == "fa1":
-            # Keep argument order aligned with fa1Test(B, H, N, d, ...)
+        elif args.testname == "fa2":
             print(
-                f"fa1 config: B={B}, H={H}, N={N}, d={d}, "
-                f"bc={int(args.bc)}, br={int(args.br)}, impl={args.impl}"
+                f"fa2 config: B={B}, H={H}, N={N}, d={d}, "
+                f"bc={int(args.bc)}, br={int(args.br)}, causal={args.causal} "
+                f"(FlashAttention-2 student kernel)"
             )
-            fa1Test(B, H, N, d, int(args.bc), int(args.br), use_wmma=use_wmma)
-        elif args.testname == "fa1_bw":
+            fa2Test(B, H, N, d, int(args.bc), int(args.br), causal=args.causal)
+        elif args.testname == "fa2_bw":
             print(
-                f"fa1_bw config: B={B}, H={H}, N={N}, d={d}, "
-                f"bc={int(args.bc)}, br={int(args.br)}, impl={args.impl}"
+                f"fa2_bw config: B={B}, H={H}, N={N}, d={d}, "
+                f"bc={int(args.bc)}, br={int(args.br)}, causal={args.causal}"
             )
-            fa1BackwardSmokeTest(B, H, N, d, int(args.bc), int(args.br), use_wmma=use_wmma)
+            fa2_backward_smoke_test(B, H, N, d, int(args.bc), int(args.br), causal=args.causal)
         else:
             print("Unknown test name: %s" % args.testname)
     else:
